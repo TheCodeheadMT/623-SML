@@ -90,7 +90,9 @@ def transform_win7_traces(features_df):
     nom_features_list = ['source', 'source_long', 'timestamp_desc', 'first_dir']
 
     # numeric features used in model
-    num_features_list = ['datetime', 'flagged_activity_dist', 'msiecf_len']
+    num_features_list = ['datetime', 'msiecf_len']
+    
+    # Removed 'flagged_activity_dist'
 
     # Remove columns we do not want to use...
     features_out = features_out.drop(primary_exclude_list, axis=1)
@@ -227,6 +229,111 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
         _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
 
     return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+
+def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="training"):
+    X = Xs
+    y = ys
+
+    feature_size = X.shape[1]
+    layer_size = 20
+    n_epochs = 10
+    batch_size = 64
+
+    print(X.shape)
+    exit()
+    # input_layer = 
+    # active_layer = input_layer
+
+            
+    # active_layer = Conv2D(filters = 32, 
+    #                     kernel_size = (6,6),
+    #                     activation=activation,
+    #                     kernel_initializer='he_normal')(active_layer)
+
+    # model4 = Sequential()
+    # model4.add(Dense(layer_size, activation='relu', input_dim=feature_size))
+    # model4.add(Dense(2, activation='softmax'))
+
+    # model4.compile(optimizer='adam',
+    #         loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+    #         metrics=['accuracy'])
+    
+
+    # model4.summary()
+
+    # # setup logger so we can load history later
+    # csv_logger = CSVLogger('training.log', separator=',', append=False)
+    
+    
+    # history4 = model4.fit(x=X_train_rdy,
+    #                         y=y_train,
+    #                         validation_data=(X_val_rdy, y_val),
+    #                         batch_size=batch_size, 
+    #                         epochs=n_epochs,
+    #                         callbacks=[csv_logger])
+    
+    # print("Baseline model\n")
+    
+    # pred_train = model4.predict(X_train_rdy)
+    # scores = model4.evaluate(X_train_rdy, y_train, verbose=0)
+    # print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores[1], 1 - scores[1]))   
+    # print('\n')  
+    # pred_val= model4.predict(X_val_rdy)
+    # scores2 = model4.evaluate(X_val_rdy, y_val, verbose=0)
+    # print('Accuracy on validate data: {}% \n Error on validate data: {}'.format(scores2[1], 1 - scores2[1])) 
+    # print('\n')  
+    
+    # # save model for later reference
+    # #model4.save("step_5_initial_model_titanic")
+    
+    # truth = pd.DataFrame([[i] for i in y_train]).to_numpy()
+    # pred = pred_train[:, 1]
+    # pred[pred > 0.5] = 1
+    # pred[pred <= 0.5] = 0
+
+    # # print a classification report from sklearn
+    # print(classification_report(y_true=truth, y_pred=pred, target_names=['died', 'survived']))
+    
+    # # plot the confusion matrix
+    # plot_cm(truth, pred)
+
+    # # baseline model
+    # # baseline_ann = 
+    # # model = Sequential()
+    # # model.add(Dense(60, input_shape=(60,), activation='relu'))
+    # # model.add(Dense(1, activation='sigmoid'))
+    # # # Compile model
+    # # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=METRICS)
+    # # return model
+
+    # # log_reg = LogisticRegression(solver='lbfgs', class_weight=class_weights, max_iter=500)
+    # # log_reg.fit(X, y)
+
+    # # lda = LinearDiscriminantAnalysis()
+    # # lda.fit(X, y)
+
+    # # qda = QuadraticDiscriminantAnalysis()
+    # # qda.fit(X, y)
+
+    # # knn = KNeighborsClassifier()
+    # # knn.fit(X, y)
+
+    # # dtc = DecisionTreeClassifier(class_weight=class_weights)
+    # # dtc.fit(X, y)
+
+    # # rfc = RandomForestClassifier(class_weight=class_weights)
+    # # rfc.fit(X, y)
+
+    # if save_models:
+    #     # _save_model(log_reg, "models\\" + dataset_used + "\\LogRegModel_Training.h5")
+    #     # _save_model(lda, "models\\" + dataset_used + "\\LDAModel_Training.h5")
+    #     # _save_model(qda, "models\\" + dataset_used + "\\QDAModel_Training.h5")
+    #     # _save_model(knn, "models\\" + dataset_used + "\\KNNModel_Training.h5")
+    #     # _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
+    #     # _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
+
+    return {'Baseline': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+
 
 
 def predict_probs(models, X):
