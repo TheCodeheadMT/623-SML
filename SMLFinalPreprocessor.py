@@ -2,42 +2,19 @@ import datetime as datetime
 import pickle
 from statistics import mean
 
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay, confusion_matrix, RocCurveDisplay
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
 import xgboost as xgb
-
-dont_explore = ['timestamp_desc_Added Time', 'timestamp_desc_Content Deletion Time', 'timestamp_desc_End Time',
-                'timestamp_desc_Expiration Time', 'timestamp_desc_File Last Modification Time',
-                'timestamp_desc_Installation Time', 'timestamp_desc_Last Access Time',
-                'timestamp_desc_Last Connection Time', 'timestamp_desc_Last Login Time',
-                'timestamp_desc_Last Password Set Time',
-                'timestamp_desc_Last Shutdown Time', 'timestamp_desc_Last Time Executed',
-                'timestamp_desc_Last Visited Time', 'timestamp_desc_Last registered Time', 'timestamp_desc_Launch Time',
-                'timestamp_desc_Metadata Modification Time', 'timestamp_desc_Synchronization Time',
-                'timestamp_desc_Unknown Time', 'source_EVT', 'source_LOG', 'source_OLECF', 'source_PE', 'source_RECBIN',
-                'source_REG', 'source_WEBHIST', 'source_long_AppCompatCache Registry Key',
-                'source_long_BagMRU Registry Key', 'source_long_Chrome Cache', 'source_long_Firefox History',
-                'source_long_MRUList Registry Key',
-                'source_long_MRUListEx Registry Key', 'source_long_MSIE Cache File URL record',
-                'source_long_Microsoft Office MRU Registry Key', 'source_long_NTFS USN change',
-                'source_long_OLECF Dest list entry',
-                'source_long_OLECF Item', 'source_long_PE/COFF file', 'source_long_Recycle Bin',
-                'source_long_Registry Key', 'source_long_Run/Run Once Registry Key',
-                'source_long_Service/Driver Configuration Registry Key',
-                'source_long_Setup API Log', 'source_long_Shutdown Registry Key', 'source_long_System',
-                'source_long_Task Cache Registry Key', 'source_long_Typed URLs Registry Key',
-                'source_long_USB Registry Key',
-                'source_long_USBStor Registry Key', 'source_long_User Account Information Registry Key',
-                'source_long_UserAssist Registry Key', 'source_long_WinEVTX', 'source_long_WinPrefetch',
-                'source_long_Winlogon Registry Key']
 
 
 # Given a date time str, convert it to unixtime
@@ -55,6 +32,12 @@ def fix_datetime(datetime_str):
 # Given datetime column, apply a mapping to column to convert it to unix time
 def clean_datetimes(datetime_col):
     return datetime_col.apply(fix_datetime)
+
+
+def corr_plots(df):
+    dataplot = sns.heatmap(df.corr().sort_values('tag', ascending=False), cmap='YlGnBu')
+    print(df.corr())
+    plt.show()
 
 
 def data_explore(df):
@@ -104,10 +87,10 @@ def transform_win7_traces(features_df):
 
     # nominal features used in model
     # nom_features_list = ['timestamp_desc', 'source', 'source_long']
-    nom_features_list = ['source', 'source_long', 'timestamp_desc']
+    nom_features_list = ['source', 'source_long', 'timestamp_desc', 'first_dir']
 
     # numeric features used in model
-    num_features_list = ['datetime']
+    num_features_list = ['datetime', 'flagged_activity_dist', 'msiecf_len']
 
     # Remove columns we do not want to use...
     features_out = features_out.drop(primary_exclude_list, axis=1)
@@ -155,6 +138,64 @@ def transform_win7_traces(features_df):
     return df_out
 
 
+def parse_first_dir_from_display_name_feature(df):
+    # get first directory from display name
+    df['first_dir'] = df.apply(
+        lambda x: (x['display_name'].split('\\')[1])
+        if ('\\' in x['display_name']) and
+           not ('$' in x['display_name'].split('\\')[1]) else "\\", axis=1)
+
+    return df
+
+
+def get_msg_len_for_msie_cache_feature(df):
+    df['msiecf_len'] = df.apply(
+        lambda x: int(len(x['message']))
+        if 'MSIE Cache File URL record' in x['source_long'] else 0,
+        axis=1)
+    # print(df['msiecf_len'].to_string())
+    return df
+
+
+def get_time_delta_from_tagged_activity_feature(df):
+    # build a hashmap of tags and timestamps
+    # if tag is 1, set value to 0
+    # if tag is 0, set value to closest 1 timestamp - current obseravtion timestamp
+    # fir each entry: find the next entry that
+    df['flagged_activity_dist'] = 10e+100
+
+    # forward pass
+    for index, row in df.iterrows():
+        # if row['tag'] == 1:
+        #     df.at[index, 'flagged_activity_dist'] = 0
+        # if row['tag'] != 1:
+        #check forward
+        for i in range(df.shape[0] - index + 1):
+            # set my spot to the current observation timestamp
+            i += index
+            if i > df.shape[0] - 1:
+                break
+            # print("starting index", i)
+            if df.at[i, 'tag'] == 1:
+                df.at[index, 'flagged_activity_dist'] = df.at[i, 'datetime'] - row[0]
+                break
+        #check backward
+        for j in range(index, 0, -1):
+            # set my spot to the current observation timestamp
+            if j < 0:
+                break
+            #print("starting index", i)
+            if df.at[j, 'tag'] == 1:
+                if df.at[j, 'datetime'] - row[0] < df.at[index, 'flagged_activity_dist']:
+                    df.at[index, 'flagged_activity_dist'] = np.abs(df.at[j, 'datetime'] - row[0])
+                break
+
+        if index % 10000 == 0:
+            print("-> % forward complete: ", index / df.shape[0])
+
+    return df
+
+
 def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="training"):
     X = Xs
     y = ys
@@ -168,6 +209,9 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
     qda = QuadraticDiscriminantAnalysis()
     qda.fit(X, y)
 
+    knn = KNeighborsClassifier()
+    knn.fit(X, y)
+
     dtc = DecisionTreeClassifier(class_weight=class_weights)
     dtc.fit(X, y)
 
@@ -178,10 +222,12 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
         _save_model(log_reg, "models\\" + dataset_used + "\\LogRegModel_Training.h5")
         _save_model(lda, "models\\" + dataset_used + "\\LDAModel_Training.h5")
         _save_model(qda, "models\\" + dataset_used + "\\QDAModel_Training.h5")
+        _save_model(knn, "models\\" + dataset_used + "\\KNNModel_Training.h5")
         _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
         _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
 
-    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+
 
 def predict_probs(models, X):
     """ Returns a dictionary of predicted proability vectors using models stored in the input dictionary 'models' on the feature data 'X'
@@ -202,6 +248,7 @@ def report_model_accuracy(models, Xs, ys):
         'Logistic Regression': [],
         'Linear Discriminant Analysis': [],
         'Quadradic Discriminant Analysis': [],
+        'KNeighbors Classification': [],
         'Decision Tree Classifier': [],
         'Random Forest Classifier': []
     })
@@ -225,6 +272,10 @@ def report_model_accuracy(models, Xs, ys):
     qda_pred = models['QDA'].predict(X)
     qda_score = accuracy_score(y, qda_pred)
 
+    # get predictions
+    knn_pred = models['KNN'].predict(X)
+    knn_score = accuracy_score(y, knn_pred)
+
     # predict responses
     dtc_pred = models['Decision_Tree'].predict(X)
     dtc_score = accuracy_score(y, dtc_pred)
@@ -234,7 +285,7 @@ def report_model_accuracy(models, Xs, ys):
     rfc_score = accuracy_score(y, rfc_pred)
 
     # add the row of scores to our data frame
-    df_out.loc[0] = ["Dataset", lg_score, lda_score, qda_score, dtc_score, rfc_score]
+    df_out.loc[0] = ["Dataset", lg_score, lda_score, qda_score, knn_score, dtc_score, rfc_score]
 
     return df_out
 
@@ -251,10 +302,11 @@ def load_all_models(dataset_used):
     log_reg = _load_model("models\\" + dataset_used + "\\LogRegModel_Training.h5")
     lda = _load_model("models\\" + dataset_used + "\\LDAModel_Training.h5")
     qda = _load_model("models\\" + dataset_used + "\\QDAModel_Training.h5")
+    knn = _load_model("models\\" + dataset_used + "\\KNNModel_Training.h5")
     dtc = _load_model("models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
     rfc = _load_model("models\\" + dataset_used + "\\RandomForestModel_Training.h5")
 
-    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
 
 
 def show_confusion_matrix(models, xs, ys):
@@ -281,25 +333,41 @@ def show_confusion_matrix(models, xs, ys):
     f.colorbar(disp.im_, ax=axes)
     plt.show()
 
+
 def show_ROC_plots(models, xs, ys):
-    #get true prediction results
+    # get true prediction results
+
+    # check for nans
+    if xs.isnull().values.any():
+        print("found nulls in xs")
+        exit()
+    if ys.isnull().values.any():
+        print("found nulls in ys")
+        exit()
+
     y_true = ys
     test_predicts = predict_probs(models, xs)
 
     # Log Rec ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['Logistic_Regression'][:, 1], pos_label=1, ax=plt.gca(), name="Log Reg")
+    RocCurveDisplay.from_predictions(y_true, test_predicts['Logistic_Regression'][:, 1], pos_label=1, ax=plt.gca(),
+                                     name="Log Reg")
 
     # LDA ROC
-    RocCurveDisplay.from_predictions(y_true,  test_predicts['LDA'][:, 1], pos_label=1, ax=plt.gca(), name="LDA")
+    RocCurveDisplay.from_predictions(y_true, test_predicts['LDA'][:, 1], pos_label=1, ax=plt.gca(), name="LDA")
 
     # QDA ROC
     RocCurveDisplay.from_predictions(y_true, test_predicts['QDA'][:, 1], pos_label=1, ax=plt.gca(), name="QDA")
 
+    # KNN ROC
+    RocCurveDisplay.from_predictions(y_true, test_predicts['KNN'][:, 1], pos_label=1, ax=plt.gca(), name="KNN")
+
     # LDA ROC
-    RocCurveDisplay.from_predictions(y_true,  test_predicts['Decision_Tree'][:, 1], pos_label=1, ax=plt.gca(), name="Decision Tree")
+    RocCurveDisplay.from_predictions(y_true, test_predicts['Decision_Tree'][:, 1], pos_label=1, ax=plt.gca(),
+                                     name="Decision Tree")
 
     # QDA ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['Random_Forest'][:, 1], pos_label=1, ax=plt.gca(), name="Random Forest")
+    RocCurveDisplay.from_predictions(y_true, test_predicts['Random_Forest'][:, 1], pos_label=1, ax=plt.gca(),
+                                     name="Random Forest")
 
     # Add legend
     plt.legend()
@@ -308,23 +376,80 @@ def show_ROC_plots(models, xs, ys):
 
     # Add title
     plt.title("Receiver Operating Characteristic \n User trace classification")
-    #print(str(df_names) + "\n Receiver Operating Characteristic")
+    # print(str(df_names) + "\n Receiver Operating Characteristic")
 
     # Display plot
     plt.show()
 
-def gridSearchCV(model, validation_data):
-    X = validation_data.drop(["datetime", "tag"], axis=1)
-    y = validation_data.tag
+#def analyze_models(models, ):
 
-    model = model['Decision_Tree']
 
-    # define evaluation procedure
-    cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
-    # evaluate model
-    scores = cross_val_score(model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
-    # summarize performance
-    print('Mean ROC AUC: %.3f' % mean(scores))
+
+
+def gridSearchCV(model, data):
+    X = data.drop(["datetime", "tag"], axis=1)
+    y = data.tag
+#    minLogAlpha = -3
+#    maxLogAlpha = 7
+#    alphaCount = 1000
+#    alphagrid = np.zeros(alphaCount)  # placeholder for the alphas
+#    alphagrid = np.logspace(minLogAlpha,maxLogAlpha,num=alphaCount)
+
+    model1 = model['Decision_Tree']
+    tree_param = {'criterion':['gini','entropy'],'max_depth':[4,5,6,7,8,9,10,11,12,15,20,30,40,50,70,90,120,150]}
+    lcv_model = None #placeholder for GridSearchCV() wrapper of Lasso() model
+    best_lasso_alpha_decision_tree = None  #placeholder
+    best_lasso_score_decision_tree = None  #placeholder
+
+
+
+    model2 = model['Random_Forest']
+    lcv_model = None #placeholder for GridSearchCV() wrapper of Lasso() model
+    best_lasso_alpha_decision_tree = None  #placeholder
+    best_lasso_score_decision_tree = None  #placeholder
+
+
+
+
+    # # define evaluation procedure
+    # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+    # # evaluate model
+    # scores = cross_val_score(model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
+    # # summarize performance
+    # print('Mean ROC AUC: %.3f' % mean(scores))
+
+
+
+
+
+
+    lasso_cv_results = pd.DataFrame() #placeholder
+
+    #------------- START STUDENT CODE ------------------
+
+    # Create Lasso model
+    lasso = Lasso()
+
+    # Wrap Lasso() GridSearch CV using Lasso, alphagrid, dataspace_rmse scoring, kfold_count and return training scores.
+    lcv_model = GridSearchCV(Lasso(),
+                             {'alpha': alphagrid},
+                             scoring=dataspace_rmse,
+                             cv=kfold_count,
+                             return_train_score=True)
+
+    # Fit GridSearchCV to nonTest numeric features and log_y_nontest
+    lcv_model.fit(X_nonTest_scaled[numeric_features], log_y_nonTest)
+
+    # Store best lasso alpha
+    best_lasso_alpha = lcv_model.best_params_['alpha']
+
+    # Store best lasso score - multiplied by -1 for comparision with other scores
+    best_lasso_score = lcv_model.best_score_*-1
+
+    # Store results in dataframe for later reference
+    lasso_cv_results = pd.DataFrame(lcv_model.cv_results_)
+
+
 
     #
     # # setup model to be tuned

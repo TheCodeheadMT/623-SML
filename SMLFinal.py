@@ -25,20 +25,33 @@ from sklearn.ensemble import RandomForestClassifier
 import SMLFinalPreprocessor as util
 
 #### START: PREPROCESS DATA ################################################
-preprocess = False
+preprocess = True
 if preprocess:
     # read in dataset1.csv
-    df = pd.read_csv("LABELED_2023_training_timeline1.txt", header=0,
+    #df = pd.read_csv("LABELED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK_training_timeline1.txt", header=0,
+    df = pd.read_csv("LABELED_2023-02-09_LVL3-FILTER_training_timeline1.txt", header=0,
                      names=['datetime', 'timestamp_desc', 'source', 'source_long',
                             'message', 'parser', 'display_name', 'tag'])
 
     # preprocess the timestamp field
     df.datetime = util.clean_datetimes(df.iloc[:, 0])
 
+    # add feature: first directory in path
+    df = util.parse_first_dir_from_display_name_feature(df)
+
+    # add feature: msie cache message length
+    df = util.get_msg_len_for_msie_cache_feature(df)
+
+    # add feature: distance from flagged user activity
+    df = util.get_time_delta_from_tagged_activity_feature(df)
+
+    # save to inspect before encoding
+    df.to_csv("Test_before_encoding.csv", index=False)
+
     # scale and encode the dataset
     df_transformed = util.transform_win7_traces(df)
 
-    df_transformed.to_csv("LABELED_ENCODED_2023_training_timeline1.txt", index=False)
+    df_transformed.to_csv("LABELED_ENCODED_2023-02-09_LVL3-FILTER_training_timeline1.txt", index=False)
     exit()
 ############################################################################
 
@@ -87,7 +100,15 @@ if histograms:
 ####   END: PREPROCESS DATA ################################################
 ####### LOAD DATA ##########################################################
 # read in dataset1.csv
-df1 = pd.read_csv("LABELED_ENCODED_2023_training_timeline1.txt")
+df1 = pd.read_csv("LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-FIRST_DIR-MSIE_LEN-DATETIME_DIST-training_timeline1.txt")
+#df2 = pd.read_csv("LABELED_2023-02-09_LVL2-FILTER_training_timeline1.txt")
+
+corr_analysis = False
+if corr_analysis:
+    util.corr_plots(df1)
+    #LABELED_2023-02-09_LVL2-FILTER_training_timeline1
+    exit()
+
 
 # Split data into two equal groups for training and validation maintaining class distributions
 df1_train, df1_validation = train_test_split(df1, train_size=0.7, random_state=42, stratify=df1['tag'])
@@ -104,7 +125,7 @@ class_weight = {
     0: n_samples/(2*n_class_0),
     1: n_samples/(2*n_class_1)
 }
-# print(class_weight)
+#print(class_weight)
 # print(df1_train.shape)
 
 # Set Xs and Ys for our training set
@@ -134,6 +155,7 @@ print_accuracy = True
 if print_accuracy:
     print(util.report_model_accuracy(df1_train_models, X, y).to_string())
 
+
 # Show confusion matrix for all models
 show_confusion_matrix = True
 if show_confusion_matrix:
@@ -148,8 +170,7 @@ if show_roc_curves:
 #util.gridSearchCV(df1_train_models, df1_validation)
 
 # test against our test data
-
-
+analyze_models(models)
 
 ####### LOAD DATA ##########################################################
 
