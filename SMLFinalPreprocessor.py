@@ -1,11 +1,16 @@
 import datetime as datetime
+import itertools
+import os
 import pickle
-from statistics import mean
+import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import sklearn
+from keras import Model
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -13,8 +18,24 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay, confusion_matrix, RocCurveDisplay
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import StackingClassifier
+# from keras.models import KerasClassifier
+# from sklearn.keras.wrappers.scikit_learn.KerasClassifier,
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
 import xgboost as xgb
+
+
+class Timer(object):
+    def __init__(self, name=None):
+        self.name = name
+
+    def __enter__(self):
+        self.tstart = time.time()
+
+    def __exit__(self, type, value, traceback):
+        if self.name:
+            print('[%s]' % self.name, )
+        print('Elapsed: %s' % (time.time() - self.tstart))
 
 
 # Given a date time str, convert it to unixtime
@@ -33,38 +54,65 @@ def fix_datetime(datetime_str):
 def clean_datetimes(datetime_col):
     return datetime_col.apply(fix_datetime)
 
-
 def corr_plots(df):
     dataplot = sns.heatmap(df.corr().sort_values('tag', ascending=False), cmap='YlGnBu')
     print(df.corr())
     plt.show()
 
+# helper function for encode_display_name_feature
+def encode_display_name(dispplay_str):
+    out_str = ''
+    p = Path(dispplay_str)
+    key_dirs = ['windows', 'program files', 'users', 'windows', 'system32', 'common files', 'documents', 'pictures',
+                'appdata', 'roaming', 'local settings', 'application data', 'local', 'desktop',
+                'documents and settings']
+    # excluded 'temp'
 
-def data_explore(df):
-    df_focused = df.drop(dont_explore, axis=1)
+    p_str = os.path.splitext(p)[0].lower()
 
-    for ftr in df_focused:
-        if ftr not in dont_explore:
-            # print description of this feature
-            print(ftr, " description:\n", df_focused[ftr].describe(), '\n')
+    for idx, dir in enumerate(key_dirs):
+        if idx > 5:
+            out_str = out_str + "\\*"
+        else:
+            if dir in p_str:
+                out_str = out_str + dir+"\\"
+            else:
+                out_str = out_str + "\\*"
+    return out_str
 
-            # pairwise plots
-            sns.pairplot(df_focused, hue='tag')
 
-            # show covariance for class 0
-            print("Covariance Class 0:\n", df_focused[df_focused.tag == 0].cov(), '\n')
+# transform display_name column into simplified represenatation
+def encode_display_name_feature(df):
+    with Timer("Add feature - encoded display name"):
+        df['key_dirs'] = df['display_name'].apply(encode_display_name)
+    return df
 
-            # show a historgram for each class 0, 1
-            df_focused[df_focused.class_tag == 0].hist(figsize=(20, 15), legend=True, bins=50)
-            plt.title("Class 0 Histogram Plots")
-            plt.show()
+# def data_explore(df):
 
-            # show covariance for class 1
-            print("Covariance Class 1:\n", df_focused[df_focused.tag == 1].cov(), '\n')
+# df_focused = df.drop(dont_explore, axis=1)
 
-            df_focused[df_focused.class_tag == 1].hist(figsize=(20, 15), legend=True, bins=50)
-            plt.title("Class 1 Histogram Plots")
-            plt.show()
+# for ftr in df_focused:
+#     if ftr not in dont_explore:
+#         # print description of this feature
+#         print(ftr, " description:\n", df_focused[ftr].describe(), '\n')
+#
+#         # pairwise plots
+#         sns.pairplot(df_focused, hue='tag')
+#
+#         # show covariance for class 0
+#         print("Covariance Class 0:\n", df_focused[df_focused.tag == 0].cov(), '\n')
+#
+#         # show a historgram for each class 0, 1
+#         df_focused[df_focused.class_tag == 0].hist(figsize=(20, 15), legend=True, bins=50)
+#         plt.title("Class 0 Histogram Plots")
+#         plt.show()
+#
+#         # show covariance for class 1
+#         print("Covariance Class 1:\n", df_focused[df_focused.tag == 1].cov(), '\n')
+#
+#         df_focused[df_focused.class_tag == 1].hist(figsize=(20, 15), legend=True, bins=50)
+#         plt.title("Class 1 Histogram Plots")
+#         plt.show()
 
 
 def box_plots(df):
@@ -79,83 +127,86 @@ def box_plots(df):
 
 
 def transform_win7_traces(features_df):
-    features_out = features_df
-    tags = features_df.tag
+    with Timer("Transform Win 7 Traces"):
+        features_out = features_df
+        tags = features_df.tag
 
-    # features not used at all in model
-    primary_exclude_list = ['message', 'display_name', 'parser', 'tag']
+        # features not used at all in model
+        primary_exclude_list = ['message', 'display_name', 'parser', 'tag']
 
-    # nominal features used in model
-    # nom_features_list = ['timestamp_desc', 'source', 'source_long']
-    nom_features_list = ['source', 'source_long', 'timestamp_desc', 'first_dir']
+        # nominal features used in model
+        # nom_features_list = ['timestamp_desc', 'source', 'source_long']
+        nom_features_list = ['source', 'source_long', 'timestamp_desc', "key_dirs"]
+        # 'first_dir'
 
-    # numeric features used in model
-    num_features_list = ['datetime', 'msiecf_len']
-    
-    # Removed 'flagged_activity_dist'
+        # numeric features used in model
+        num_features_list = ['datetime', 'msg_len']
 
-    # Remove columns we do not want to use...
-    features_out = features_out.drop(primary_exclude_list, axis=1)
+        # Removed 'flagged_activity_dist'
 
-    # Initial fields included
-    # Nominal: timestamp_desc, source, source_long
-    # Scalar: datetime
+        # Remove columns we do not want to use...
+        features_out = features_out.drop(primary_exclude_list, axis=1)
 
-    # FEATURES SCALED ################################################################
-    # remove nominal features
-    features_num = features_out.drop(nom_features_list, axis=1)
+        # Initial fields included
+        # Nominal: timestamp_desc, source, source_long
+        # Scalar: datetime
 
-    # init standard scalar
-    scaler = StandardScaler()
+        # FEATURES SCALED ################################################################
+        # remove nominal features
+        features_num = features_out.drop(nom_features_list, axis=1)
 
-    # fit and transform our data
-    scaled = scaler.fit_transform(features_num)
+        # init standard scalar
+        scaler = StandardScaler()
 
-    # convert back to a DF
-    scaled_data = pd.DataFrame(scaled)
+        # fit and transform our data
+        scaled = scaler.fit_transform(features_num)
 
-    # recover headers
-    scaled_data.columns = features_num.columns
+        # convert back to a DF
+        scaled_data = pd.DataFrame(scaled)
 
-    # update feature_num state
-    features_num = scaled_data
+        # recover headers
+        scaled_data.columns = features_num.columns
 
-    # FEATURES ENCODED ##############################################################
-    # get only nominal features by dropping numeric cols
-    features_nom = features_out.drop(num_features_list, axis=1)
+        # update feature_num state
+        features_num = scaled_data
 
-    # get 1-hot encoding for nominal features
-    features_nom = pd.get_dummies(features_nom)
+        # FEATURES ENCODED ##############################################################
+        # get only nominal features by dropping numeric cols
+        features_nom = features_out.drop(num_features_list, axis=1)
 
-    # combine scaled and nominal features into one df
-    features_num.reset_index(drop=True, inplace=True)
-    features_nom.reset_index(drop=True, inplace=True)
-    tags.reset_index(drop=True, inplace=True)
+        # get 1-hot encoding for nominal features
+        features_nom = pd.get_dummies(features_nom)
 
-    features_out = pd.concat([features_num, features_nom, tags], axis=1)
-    df_out = pd.DataFrame(data=features_out,
-                          index=features_out.index,
-                          columns=features_out.columns)
+        # combine scaled and nominal features into one df
+        features_num.reset_index(drop=True, inplace=True)
+        features_nom.reset_index(drop=True, inplace=True)
+        tags.reset_index(drop=True, inplace=True)
+
+        features_out = pd.concat([features_num, features_nom, tags], axis=1)
+        df_out = pd.DataFrame(data=features_out,
+                              index=features_out.index,
+                              columns=features_out.columns)
+
+        # This feature is not in the test data, so must not be included in training.
+        df_out = df_out.drop("source_long_Chrome Cache", axis=1)
 
     return df_out
 
 
 def parse_first_dir_from_display_name_feature(df):
-    # get first directory from display name
-    df['first_dir'] = df.apply(
-        lambda x: (x['display_name'].split('\\')[1])
-        if ('\\' in x['display_name']) and
-           not ('$' in x['display_name'].split('\\')[1]) else "\\", axis=1)
+    with Timer("Add feature - root directory"):  # get first directory from display name
+        df['first_dir'] = df.apply(
+            lambda x: (x['display_name'].split('\\')[1])
+            if ('\\' in x['display_name']) and
+               not ('$' in x['display_name'].split('\\')[1]) else "\\", axis=1)
 
     return df
 
 
-def get_msg_len_for_msie_cache_feature(df):
-    df['msiecf_len'] = df.apply(
-        lambda x: int(len(x['message']))
-        if 'MSIE Cache File URL record' in x['source_long'] else 0,
-        axis=1)
-    # print(df['msiecf_len'].to_string())
+def get_msg_len_feature(df):
+    with Timer("Add feature - message length"):
+        df['message'] = df['message'].astype(str)
+        df['msg_len'] = df.apply(lambda x: int(len(x['message'])), axis=1)
     return df
 
 
@@ -164,36 +215,37 @@ def get_time_delta_from_tagged_activity_feature(df):
     # if tag is 1, set value to 0
     # if tag is 0, set value to closest 1 timestamp - current obseravtion timestamp
     # fir each entry: find the next entry that
-    df['flagged_activity_dist'] = 10e+100
+    with Timer("Add feature - delte from user activity"):
+        df['flagged_activity_dist'] = 10e+100
 
-    # forward pass
-    for index, row in df.iterrows():
-        # if row['tag'] == 1:
-        #     df.at[index, 'flagged_activity_dist'] = 0
-        # if row['tag'] != 1:
-        #check forward
-        for i in range(df.shape[0] - index + 1):
-            # set my spot to the current observation timestamp
-            i += index
-            if i > df.shape[0] - 1:
-                break
-            # print("starting index", i)
-            if df.at[i, 'tag'] == 1:
-                df.at[index, 'flagged_activity_dist'] = df.at[i, 'datetime'] - row[0]
-                break
-        #check backward
-        for j in range(index, 0, -1):
-            # set my spot to the current observation timestamp
-            if j < 0:
-                break
-            #print("starting index", i)
-            if df.at[j, 'tag'] == 1:
-                if df.at[j, 'datetime'] - row[0] < df.at[index, 'flagged_activity_dist']:
-                    df.at[index, 'flagged_activity_dist'] = np.abs(df.at[j, 'datetime'] - row[0])
-                break
+        # forward pass
+        for index, row in df.iterrows():
+            # if row['tag'] == 1:
+            #     df.at[index, 'flagged_activity_dist'] = 0
+            # if row['tag'] != 1:
+            # check forward
+            for i in range(df.shape[0] - index + 1):
+                # set my spot to the current observation timestamp
+                i += index
+                if i > df.shape[0] - 1:
+                    break
+                # print("starting index", i)
+                if df.at[i, 'tag'] == 1:
+                    df.at[index, 'flagged_activity_dist'] = df.at[i, 'datetime'] - row[0]
+                    break
+            # check backward
+            for j in range(index, 0, -1):
+                # set my spot to the current observation timestamp
+                if j < 0:
+                    break
+                # print("starting index", i)
+                if df.at[j, 'tag'] == 1:
+                    if df.at[j, 'datetime'] - row[0] < df.at[index, 'flagged_activity_dist']:
+                        df.at[index, 'flagged_activity_dist'] = np.abs(df.at[j, 'datetime'] - row[0])
+                    break
 
-        if index % 10000 == 0:
-            print("-> % forward complete: ", index / df.shape[0])
+            if index % 10000 == 0:
+                print("-> % forward complete: ", index / df.shape[0])
 
     return df
 
@@ -202,33 +254,34 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
     X = Xs
     y = ys
 
-    log_reg = LogisticRegression(solver='lbfgs', class_weight=class_weights, max_iter=500)
-    log_reg.fit(X, y)
+    with Timer("Build and Fit: Logistic Regression"):
+        log_reg = LogisticRegression(solver='lbfgs', class_weight=class_weights, max_iter=500)
+        log_reg.fit(X, y)
 
-    lda = LinearDiscriminantAnalysis()
-    lda.fit(X, y)
+    with Timer("Build and Fit: Linear Discriminant Analysis"):
+        lda = LinearDiscriminantAnalysis()
+        lda.fit(X, y)
+    with Timer("Build and Fit: KNeighbors Classifier"):
+        knn = KNeighborsClassifier()
+        knn.fit(X, y)
+    with Timer("Build and Fit: Decision Tree Classifier"):
+        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
+        dtc.fit(X, y)
+    with Timer("Build and Fit: Random Forest Classifier"):
+        rfc = RandomForestClassifier(class_weight=class_weights, random_state=42, max_depth=3)
+        rfc.fit(X, y)
 
-    qda = QuadraticDiscriminantAnalysis()
-    qda.fit(X, y)
+        if save_models:
+            with Timer("Saving models..."):
+                _save_model(log_reg, "models\\" + dataset_used + "\\LogRegModel_Training.h5")
+                _save_model(lda, "models\\" + dataset_used + "\\LDAModel_Training.h5")
+                _save_model(knn, "models\\" + dataset_used + "\\KNNModel_Training.h5")
+                _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
+                _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
 
-    knn = KNeighborsClassifier()
-    knn.fit(X, y)
+    return {'Logistic_Regression': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc,
+            'Random_Forest': rfc}
 
-    dtc = DecisionTreeClassifier(class_weight=class_weights)
-    dtc.fit(X, y)
-
-    rfc = RandomForestClassifier(class_weight=class_weights)
-    rfc.fit(X, y)
-
-    if save_models:
-        _save_model(log_reg, "models\\" + dataset_used + "\\LogRegModel_Training.h5")
-        _save_model(lda, "models\\" + dataset_used + "\\LDAModel_Training.h5")
-        _save_model(qda, "models\\" + dataset_used + "\\QDAModel_Training.h5")
-        _save_model(knn, "models\\" + dataset_used + "\\KNNModel_Training.h5")
-        _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
-        _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
-
-    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
 
 def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="training"):
     X = Xs
@@ -241,11 +294,10 @@ def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="tr
 
     print(X.shape)
     exit()
-    # input_layer = 
+    # input_layer =
     # active_layer = input_layer
 
-            
-    # active_layer = Conv2D(filters = 32, 
+    # active_layer = Conv2D(filters = 32,
     #                     kernel_size = (6,6),
     #                     activation=activation,
     #                     kernel_initializer='he_normal')(active_layer)
@@ -257,35 +309,33 @@ def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="tr
     # model4.compile(optimizer='adam',
     #         loss=tf.keras.losses.SparseCategoricalCrossentropy(),
     #         metrics=['accuracy'])
-    
 
     # model4.summary()
 
     # # setup logger so we can load history later
     # csv_logger = CSVLogger('training.log', separator=',', append=False)
-    
-    
+
     # history4 = model4.fit(x=X_train_rdy,
     #                         y=y_train,
     #                         validation_data=(X_val_rdy, y_val),
-    #                         batch_size=batch_size, 
+    #                         batch_size=batch_size,
     #                         epochs=n_epochs,
     #                         callbacks=[csv_logger])
-    
+
     # print("Baseline model\n")
-    
+
     # pred_train = model4.predict(X_train_rdy)
     # scores = model4.evaluate(X_train_rdy, y_train, verbose=0)
-    # print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores[1], 1 - scores[1]))   
-    # print('\n')  
+    # print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores[1], 1 - scores[1]))
+    # print('\n')
     # pred_val= model4.predict(X_val_rdy)
     # scores2 = model4.evaluate(X_val_rdy, y_val, verbose=0)
-    # print('Accuracy on validate data: {}% \n Error on validate data: {}'.format(scores2[1], 1 - scores2[1])) 
-    # print('\n')  
-    
+    # print('Accuracy on validate data: {}% \n Error on validate data: {}'.format(scores2[1], 1 - scores2[1]))
+    # print('\n')
+
     # # save model for later reference
     # #model4.save("step_5_initial_model_titanic")
-    
+
     # truth = pd.DataFrame([[i] for i in y_train]).to_numpy()
     # pred = pred_train[:, 1]
     # pred[pred > 0.5] = 1
@@ -293,12 +343,12 @@ def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="tr
 
     # # print a classification report from sklearn
     # print(classification_report(y_true=truth, y_pred=pred, target_names=['died', 'survived']))
-    
+
     # # plot the confusion matrix
     # plot_cm(truth, pred)
 
     # # baseline model
-    # # baseline_ann = 
+    # # baseline_ann =
     # # model = Sequential()
     # # model.add(Dense(60, input_shape=(60,), activation='relu'))
     # # model.add(Dense(1, activation='sigmoid'))
@@ -332,8 +382,7 @@ def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="tr
     #     # _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
     #     # _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
 
-    return {'Baseline': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
-
+    return {'Baseline': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
 
 
 def predict_probs(models, X):
@@ -349,52 +398,21 @@ def predict_probs(models, X):
 
 
 def report_model_accuracy(models, Xs, ys):
-    # create table to populate
-    df_out = df = pd.DataFrame({
-        'Dataset': [],
-        'Logistic Regression': [],
-        'Linear Discriminant Analysis': [],
-        'Quadradic Discriminant Analysis': [],
-        'KNeighbors Classification': [],
-        'Decision Tree Classifier': [],
-        'Random Forest Classifier': []
-    })
+    out_accuracy_str = '[ Accuracy report of classification models ]\n'
 
-    # print(ds)
-    # Get our Xs and ys
     X = Xs
     y = ys
 
-    # Get predictions
-    lg_pred = models['Logistic_Regression'].predict(X)
-    # Get accuracy score
-    lg_score = accuracy_score(y, lg_pred)
+    for i, (key, classifier) in enumerate(models.items()):
+        # Get predictions
+        pred = models[key].predict(X)
+        score = accuracy_score(y, pred)
 
-    # Get predictions
-    lda_pred = models['LDA'].predict(X)
-    # Get accuracy score
-    lda_score = accuracy_score(y, lda_pred)
+        out_accuracy_str += key + " : " + str(score) + "\n"
 
-    # get predictions
-    qda_pred = models['QDA'].predict(X)
-    qda_score = accuracy_score(y, qda_pred)
+    print("finished report_model_accuracy")
 
-    # get predictions
-    knn_pred = models['KNN'].predict(X)
-    knn_score = accuracy_score(y, knn_pred)
-
-    # predict responses
-    dtc_pred = models['Decision_Tree'].predict(X)
-    dtc_score = accuracy_score(y, dtc_pred)
-
-    # predict responses
-    rfc_pred = models['Random_Forest'].predict(X)
-    rfc_score = accuracy_score(y, rfc_pred)
-
-    # add the row of scores to our data frame
-    df_out.loc[0] = ["Dataset", lg_score, lda_score, qda_score, knn_score, dtc_score, rfc_score]
-
-    return df_out
+    return out_accuracy_str
 
 
 def _save_model(model, filename):
@@ -406,22 +424,49 @@ def _load_model(filename):
 
 
 def load_all_models(dataset_used):
-    log_reg = _load_model("models\\" + dataset_used + "\\LogRegModel_Training.h5")
-    lda = _load_model("models\\" + dataset_used + "\\LDAModel_Training.h5")
-    qda = _load_model("models\\" + dataset_used + "\\QDAModel_Training.h5")
-    knn = _load_model("models\\" + dataset_used + "\\KNNModel_Training.h5")
-    dtc = _load_model("models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
-    rfc = _load_model("models\\" + dataset_used + "\\RandomForestModel_Training.h5")
+    with Timer("Load all models"):
+        log_reg = _load_model("models\\" + dataset_used + "\\LogRegModel_Training.h5")
+        lda = _load_model("models\\" + dataset_used + "\\LDAModel_Training.h5")
+        # qda = _load_model("models\\" + dataset_used + "\\QDAModel_Training.h5")
+        knn = _load_model("models\\" + dataset_used + "\\KNNModel_Training.h5")
+        dtc = _load_model("models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
+        rfc = _load_model("models\\" + dataset_used + "\\RandomForestModel_Training.h5")
+        stk = _load_model("models\\" + dataset_used + "\\StackedEnsemble_Training.h5")
 
-    return {'Logistic_Regression': log_reg, 'LDA': lda, 'QDA': qda, 'KNN':knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
+    return {'Logistic_Regression': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc,
+            'Random_Forest': rfc, 'Stacking_Ensemble': stk}
 
+
+def evalutate_models(models, X, y):
+    out_accuracy_str = '[ Accuracy report of classification models ]\n'
+
+    X = Xs
+    y = ys
+
+    # estimator = KerasClassifier(model=create_baseline, epochs=100, batch_size=5, verbose=0)
+
+    for i, (key, classifier) in enumerate(models.items()):
+        # Get predictions
+        pred = models[key].predict(X)
+        score = accuracy_score(y, pred)
+
+        out_accuracy_str += key + " : " + str(score) + "\n"
+
+    return out_accuracy_str
+
+
+# # evaluate model with standardized dataset
+# estimator = KerasClassifier(model=create_baseline, epochs=100, batch_size=5, verbose=0)
+# kfold = StratifiedKFold(n_splits=10, shuffle=True)
+# results = cross_val_score(estimator, X, encoded_Y, cv=kfold)
+# print("Baseline: %.2f%% (%.2f%%)" % (results.mean()*100, results.std()*100))
 
 def show_confusion_matrix(models, xs, ys):
     # Get our Xs and ys
     X = xs
     y = ys
 
-    f, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True, sharex=True)
+    f, axes = plt.subplots(1, 6, figsize=(20, 5), sharey=True, sharex=True)
 
     for i, (key, classifier) in enumerate(models.items()):
         y_pred = classifier.predict(X)
@@ -451,30 +496,11 @@ def show_ROC_plots(models, xs, ys):
     if ys.isnull().values.any():
         print("found nulls in ys")
         exit()
-
     y_true = ys
     test_predicts = predict_probs(models, xs)
 
-    # Log Rec ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['Logistic_Regression'][:, 1], pos_label=1, ax=plt.gca(),
-                                     name="Log Reg")
-
-    # LDA ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['LDA'][:, 1], pos_label=1, ax=plt.gca(), name="LDA")
-
-    # QDA ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['QDA'][:, 1], pos_label=1, ax=plt.gca(), name="QDA")
-
-    # KNN ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['KNN'][:, 1], pos_label=1, ax=plt.gca(), name="KNN")
-
-    # LDA ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['Decision_Tree'][:, 1], pos_label=1, ax=plt.gca(),
-                                     name="Decision Tree")
-
-    # QDA ROC
-    RocCurveDisplay.from_predictions(y_true, test_predicts['Random_Forest'][:, 1], pos_label=1, ax=plt.gca(),
-                                     name="Random Forest")
+    for i, (key, classifier) in enumerate(models.items()):
+        RocCurveDisplay.from_predictions(y_true, test_predicts[key][:, 1], pos_label=1, ax=plt.gca(), name=key)
 
     # Add legend
     plt.legend()
@@ -488,92 +514,255 @@ def show_ROC_plots(models, xs, ys):
     # Display plot
     plt.show()
 
-#def analyze_models(models, ):
+
+# def analyze_models(models, ):
+
+
+def get_stacked_model(Xs, ys, class_weights, dataset):
+    X = Xs
+    y = ys
+
+    stacking_clf = StackingClassifier(
+        estimators=[
+            ('lr', LogisticRegression(solver='lbfgs', class_weight=class_weights, random_state=42, max_iter=500)),
+            ('ldr', LinearDiscriminantAnalysis()),
+            # ('knn', KNeighborsClassifier()),
+            # ('rf', RandomForestClassifier(class_weight=class_weights, random_state=42)),
+            # ('dt', DecisionTreeClassifier(class_weight=class_weights, random_state=42))
+        ],
+        # final_estimator=RandomForestClassifier(class_weight=class_weights, random_state=43),
+        cv=5  # number of cross-validation folds
+    )
+    stacking_clf.fit(X, y)
+    _save_model(stacking_clf, "models\\" + dataset + "\\StackedEnsemble_Training.h5")
+
+    pred = stacking_clf.predict(X)
+    score = accuracy_score(y, pred)
+
+    print("Stacked model accuracy score: " + str(score))
+
+    return stacking_clf
+
+
+def get_important_features_from_rand_forest(clf, Xs):
+    # Feature importance:
+    for score, name in zip(clf.feature_importances_, Xs.columns):
+        print(round(score, 2), name)
+
+
+# def gridSearchCV(model, data):
+#     X = data.drop(["datetime", "tag"], axis=1)
+#     y = data.tag
+#     #    minLogAlpha = -3
+#     #    maxLogAlpha = 7
+#     #    alphaCount = 1000
+#     #    alphagrid = np.zeros(alphaCount)  # placeholder for the alphas
+#     #    alphagrid = np.logspace(minLogAlpha,maxLogAlpha,num=alphaCount)
+#
+#     model1 = model['Decision_Tree']
+#     tree_param = {'criterion': ['gini', 'entropy'],
+#                   'max_depth': [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 30, 40, 50, 70, 90, 120, 150]}
+#     lcv_model = None  # placeholder for GridSearchCV() wrapper of Lasso() model
+#     best_lasso_alpha_decision_tree = None  # placeholder
+#     best_lasso_score_decision_tree = None  # placeholder
+#
+#     model2 = model['Random_Forest']
+#     lcv_model = None  # placeholder for GridSearchCV() wrapper of Lasso() model
+#     best_lasso_alpha_decision_tree = None  # placeholder
+#     best_lasso_score_decision_tree = None  # placeholder
+#
+#     # # define evaluation procedure
+#     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+#     # # evaluate model
+#     # scores = cross_val_score(model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
+#     # # summarize performance
+#     # print('Mean ROC AUC: %.3f' % mean(scores))
+#
+#     lasso_cv_results = pd.DataFrame()  # placeholder
+#
+#     # ------------- START STUDENT CODE ------------------
+#
+#     # Create Lasso model
+#     lasso = Lasso()
+#
+#     # Wrap Lasso() GridSearch CV using Lasso, alphagrid, dataspace_rmse scoring, kfold_count and return training scores.
+#     lcv_model = GridSearchCV(Lasso(),
+#                              {'alpha': alphagrid},
+#                              scoring=dataspace_rmse,
+#                              cv=kfold_count,
+#                              return_train_score=True)
+#
+#     # Fit GridSearchCV to nonTest numeric features and log_y_nontest
+#     lcv_model.fit(X_nonTest_scaled[numeric_features], log_y_nonTest)
+#
+#     # Store best lasso alpha
+#     best_lasso_alpha = lcv_model.best_params_['alpha']
+#
+#     # Store best lasso score - multiplied by -1 for comparision with other scores
+#     best_lasso_score = lcv_model.best_score_ * -1
+#
+#     # Store results in dataframe for later reference
+#     lasso_cv_results = pd.DataFrame(lcv_model.cv_results_)
+#
+#     #
+#     # # setup model to be tuned
+#     # #model = xgb.XGBClassifier(objective="binary:logistic", random_state=42)
+#     # # put weights in a dict
+#     # param_grid = dict(scale_pos_weights=weights)
+#     #
+#     # # define evalu prodcedure
+#     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=42)
+#     # # define grid search
+#     # grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=cv, scoring='roc_auc')
+#     # # execute search
+#     # grid.fit(X, y)
+#     # print("Best %f using %s" % (grid.best_score_, grid.best_params_))
+#     # # report configs
+#     # means = grid.cv_results_['mean_test_score']
+#     # stds = grid.cv_results_['std_test_score']
+#     # params = grid.cv_results_['params']
+#     # for mean, std, param in zip(means, stds, params):
+#     #     print("%f (%f) with: %r" %  (mean, std, param))
+
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    # plt.savefig(title+'.png')
+
+
+def visualize_model(model,
+                    title,
+                    x_visualize: np.ndarray,
+                    y_visualize: np.ndarray):
+    """
+    Visualize our predictions using classification report and confusion matrix
+
+    :param model: the model used to make predictions for visualization
+    :param x_visualize: the input features given used to generate prediction
+    :param y_visualize: the true output to compare against the predictions
+    """
+    y_pred = model.predict(x_visualize)
+    y_pred = np.array(y_pred > 0.5, dtype=int)
+    y_true = y_visualize
+    class_names = ['System', 'User']
+
+    print(sklearn.metrics.classification_report(y_true, y_pred, target_names=class_names))
+
+    confusion_matrix = sklearn.metrics.confusion_matrix(y_pred=y_pred,
+                                                        y_true=y_true)
+
+    np.set_printoptions(precision=2)
+
+    # Plot non-normalized confusion matrix
+    plt.figure()
+    plot_confusion_matrix(confusion_matrix, classes=class_names,
+                          title='Confusion matrix, without normalization\n' + title)
+
+    # Plot normalized confusion matrix
+    plt.figure()
+    plot_confusion_matrix(confusion_matrix, classes=class_names, normalize=True,
+                          title='Normalized confusion matrix\n' + title)
+    plt.show()
+
+
+# Prune the tree!
+def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
+
+    clf = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
+    path = clf.cost_complexity_pruning_path(X_train, y_train)
+    ccp_alphas, impurities = path.ccp_alphas, path.impurities
+
+    # plot to see best alpha
+    fig, ax = plt.subplots()
+    ax.plot(ccp_alphas[:-1], impurities[:-1], marker="o", drawstyle="steps-post")
+    ax.set_xlabel("effective alpha")
+    ax.set_ylabel("total impurity of leaves")
+    ax.set_title("Total Impurity vs effective alpha for training set")
+    plt.show()
+
+
+    # now train the tree with the effective alphas
+    clfs = []
+
+    for ccp_alpha in ccp_alphas:
+        if ccp_alpha < 0:
+            clf = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=0)
+            clf.fit(X_train, y_train)
+            clfs.append(clf)
+        else:
+            clf = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=ccp_alpha)
+            clf.fit(X_train, y_train)
+            clfs.append(clf)
+    print(
+        "Number of nodes in the last tree is: {} with ccp_alpha: {}".format(
+            clfs[-1].tree_.node_count, ccp_alphas[-1]
+        )
+    )
+
+    # Here we show that the number of nodes and tree depth decreases as alpha increases.
+    clfs = clfs[:-1]
+    ccp_alphas = ccp_alphas[:-1]
+
+    node_counts = [clf.tree_.node_count for clf in clfs]
+    depth = [clf.tree_.max_depth for clf in clfs]
+    fig, ax = plt.subplots(2, 1)
+    ax[0].plot(ccp_alphas, node_counts, marker="o", drawstyle="steps-post")
+    ax[0].set_xlabel("alpha")
+    ax[0].set_ylabel("number of nodes")
+    ax[0].set_title("Number of nodes vs alpha")
+    ax[1].plot(ccp_alphas, depth, marker="o", drawstyle="steps-post")
+    ax[1].set_xlabel("alpha")
+    ax[1].set_ylabel("depth of tree")
+    ax[1].set_title("Depth vs alpha")
+    fig.tight_layout()
+    plt.show()
+
+    # EXAMPLE
+    # When ccp_alpha is set to zero and keeping the other default parameters of DecisionTreeClassifier,
+    # the tree overfits, leading to a 100% training accuracy and 88% testing accuracy. As alpha increases,
+    # more of the tree is pruned, thus creating a decision tree that generalizes better. In this example,
+    # setting ccp_alpha=0.015 maximizes the testing accuracy.
+    train_scores = [clf.score(X_train, y_train) for clf in clfs]
+    test_scores = [clf.score(X_test, y_test) for clf in clfs]
+
+    fig, ax = plt.subplots()
+    ax.set_xlabel("alpha")
+    ax.set_ylabel("accuracy")
+    ax.set_title("Accuracy vs alpha for training and testing sets")
+    ax.plot(ccp_alphas, train_scores, marker="o", label="train", drawstyle="steps-post")
+    ax.plot(ccp_alphas, test_scores, marker="o", label="test", drawstyle="steps-post")
+    ax.legend()
+    plt.show()
 
 
 
-
-def gridSearchCV(model, data):
-    X = data.drop(["datetime", "tag"], axis=1)
-    y = data.tag
-#    minLogAlpha = -3
-#    maxLogAlpha = 7
-#    alphaCount = 1000
-#    alphagrid = np.zeros(alphaCount)  # placeholder for the alphas
-#    alphagrid = np.logspace(minLogAlpha,maxLogAlpha,num=alphaCount)
-
-    model1 = model['Decision_Tree']
-    tree_param = {'criterion':['gini','entropy'],'max_depth':[4,5,6,7,8,9,10,11,12,15,20,30,40,50,70,90,120,150]}
-    lcv_model = None #placeholder for GridSearchCV() wrapper of Lasso() model
-    best_lasso_alpha_decision_tree = None  #placeholder
-    best_lasso_score_decision_tree = None  #placeholder
-
-
-
-    model2 = model['Random_Forest']
-    lcv_model = None #placeholder for GridSearchCV() wrapper of Lasso() model
-    best_lasso_alpha_decision_tree = None  #placeholder
-    best_lasso_score_decision_tree = None  #placeholder
-
-
-
-
-    # # define evaluation procedure
-    # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
-    # # evaluate model
-    # scores = cross_val_score(model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
-    # # summarize performance
-    # print('Mean ROC AUC: %.3f' % mean(scores))
-
-
-
-
-
-
-    lasso_cv_results = pd.DataFrame() #placeholder
-
-    #------------- START STUDENT CODE ------------------
-
-    # Create Lasso model
-    lasso = Lasso()
-
-    # Wrap Lasso() GridSearch CV using Lasso, alphagrid, dataspace_rmse scoring, kfold_count and return training scores.
-    lcv_model = GridSearchCV(Lasso(),
-                             {'alpha': alphagrid},
-                             scoring=dataspace_rmse,
-                             cv=kfold_count,
-                             return_train_score=True)
-
-    # Fit GridSearchCV to nonTest numeric features and log_y_nontest
-    lcv_model.fit(X_nonTest_scaled[numeric_features], log_y_nonTest)
-
-    # Store best lasso alpha
-    best_lasso_alpha = lcv_model.best_params_['alpha']
-
-    # Store best lasso score - multiplied by -1 for comparision with other scores
-    best_lasso_score = lcv_model.best_score_*-1
-
-    # Store results in dataframe for later reference
-    lasso_cv_results = pd.DataFrame(lcv_model.cv_results_)
-
-
-
-    #
-    # # setup model to be tuned
-    # #model = xgb.XGBClassifier(objective="binary:logistic", random_state=42)
-    # # put weights in a dict
-    # param_grid = dict(scale_pos_weights=weights)
-    #
-    # # define evalu prodcedure
-    # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=42)
-    # # define grid search
-    # grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=cv, scoring='roc_auc')
-    # # execute search
-    # grid.fit(X, y)
-    # print("Best %f using %s" % (grid.best_score_, grid.best_params_))
-    # # report configs
-    # means = grid.cv_results_['mean_test_score']
-    # stds = grid.cv_results_['std_test_score']
-    # params = grid.cv_results_['params']
-    # for mean, std, param in zip(means, stds, params):
-    #     print("%f (%f) with: %r" %  (mean, std, param))
