@@ -3,22 +3,29 @@ import itertools
 import os
 import pickle
 import time
+from io import StringIO
 from pathlib import Path
+from IPython.display import Image
 
 import numpy as np
 import pandas as pd
+import pydotplus
 import seaborn as sns
 import matplotlib.pyplot as plt
 import sklearn
 from keras import Model
+from matplotlib.ticker import FormatStrFormatter, StrMethodFormatter
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SequentialFeatureSelector
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay, confusion_matrix, RocCurveDisplay
 from sklearn.preprocessing import StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import LinearSVC, SVC
+from sklearn.tree import DecisionTreeClassifier, export_graphviz
 from sklearn.ensemble import StackingClassifier
+from sklearn.model_selection import RandomizedSearchCV
 # from keras.models import KerasClassifier
 # from sklearn.keras.wrappers.scikit_learn.KerasClassifier,
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
@@ -54,65 +61,18 @@ def fix_datetime(datetime_str):
 def clean_datetimes(datetime_col):
     return datetime_col.apply(fix_datetime)
 
-def corr_plots(df):
-    dataplot = sns.heatmap(df.corr().sort_values('tag', ascending=False), cmap='YlGnBu')
-    print(df.corr())
+
+def corr_plots(df, title):
+    plt.yticks(rotation=45)
+    # plotting the heatmap
+    # Show heatmap of our correlation matrix
+    corr_vals = df.corr().sort_values('tag', ascending=False)
+    dataplot = sns.heatmap(corr_vals, cmap="YlGnBu", annot=True)
+    plt.yticks(rotation=25)
+    plt.xticks(rotation=25)
+    plt.title(title)
     plt.show()
-
-# helper function for encode_display_name_feature
-def encode_display_name(dispplay_str):
-    out_str = ''
-    p = Path(dispplay_str)
-    key_dirs = ['windows', 'program files', 'users', 'windows', 'system32', 'common files', 'documents', 'pictures',
-                'appdata', 'roaming', 'local settings', 'application data', 'local', 'desktop',
-                'documents and settings']
-    # excluded 'temp'
-
-    p_str = os.path.splitext(p)[0].lower()
-
-    for idx, dir in enumerate(key_dirs):
-        if idx > 5:
-            out_str = out_str + "\\*"
-        else:
-            if dir in p_str:
-                out_str = out_str + dir+"\\"
-            else:
-                out_str = out_str + "\\*"
-    return out_str
-
-
-# transform display_name column into simplified represenatation
-def encode_display_name_feature(df):
-    with Timer("Add feature - encoded display name"):
-        df['key_dirs'] = df['display_name'].apply(encode_display_name)
-    return df
-
-# def data_explore(df):
-
-# df_focused = df.drop(dont_explore, axis=1)
-
-# for ftr in df_focused:
-#     if ftr not in dont_explore:
-#         # print description of this feature
-#         print(ftr, " description:\n", df_focused[ftr].describe(), '\n')
-#
-#         # pairwise plots
-#         sns.pairplot(df_focused, hue='tag')
-#
-#         # show covariance for class 0
-#         print("Covariance Class 0:\n", df_focused[df_focused.tag == 0].cov(), '\n')
-#
-#         # show a historgram for each class 0, 1
-#         df_focused[df_focused.class_tag == 0].hist(figsize=(20, 15), legend=True, bins=50)
-#         plt.title("Class 0 Histogram Plots")
-#         plt.show()
-#
-#         # show covariance for class 1
-#         print("Covariance Class 1:\n", df_focused[df_focused.tag == 1].cov(), '\n')
-#
-#         df_focused[df_focused.class_tag == 1].hist(figsize=(20, 15), legend=True, bins=50)
-#         plt.title("Class 1 Histogram Plots")
-#         plt.show()
+    plt.savefig("figures\\heatmap_corr.png")
 
 
 def box_plots(df):
@@ -126,6 +86,35 @@ def box_plots(df):
     return df
 
 
+def data_explore(df):
+
+    for ftr in df:
+        # print description of this feature
+        print(ftr, " Description:\n", df[ftr].describe(), '\n')
+
+    df1 = df[df['tag'] == 1]
+    df0 = df[df['tag'] == 0]
+
+    # show a historgram for each class 0, 1
+    plt.hist(df0['msg_len'], label="System msg_len", alpha=.25)
+    plt.hist(df1['msg_len'], label="User msg_len", alpha=.25)
+    plt.hist(df0['file_depth'], label="System file_depth", alpha=.25)
+    plt.hist(df1['file_depth'], label="User file_depth", alpha=.25)
+    plt.legend(loc='upper right')
+    plt.title("System vs. User Histogram Plots")
+    plt.yscale('log')
+    plt.xscale('log')
+    plt.show()
+
+
+
+    # # show covariance for class 1
+    print("Covariance Tag 1 (user):\n", df[df.tag == 1].cov(), '\n')
+
+    # show covariance for class 0
+    print("Covariance Tag 0 (system):\n", df[df.tag == 0].cov(), '\n')
+
+
 def transform_win7_traces(features_df):
     with Timer("Transform Win 7 Traces"):
         features_out = features_df
@@ -136,13 +125,13 @@ def transform_win7_traces(features_df):
 
         # nominal features used in model
         # nom_features_list = ['timestamp_desc', 'source', 'source_long']
-        nom_features_list = ['source', 'source_long', 'timestamp_desc', "key_dirs"]
+        nom_features_list = ['source', 'source_long', 'timestamp_desc', 'key_dirs']
         # 'first_dir'
 
         # numeric features used in model
-        num_features_list = ['datetime', 'msg_len']
+        num_features_list = ['datetime', 'msg_len', 'file_depth']
 
-        # Removed 'flagged_activity_dist'
+        # Removed 'flagged_activity_dist', 'flagged_activity_dist_X_file_depth'
 
         # Remove columns we do not want to use...
         features_out = features_out.drop(primary_exclude_list, axis=1)
@@ -188,7 +177,7 @@ def transform_win7_traces(features_df):
                               columns=features_out.columns)
 
         # This feature is not in the test data, so must not be included in training.
-        df_out = df_out.drop("source_long_Chrome Cache", axis=1)
+        # df_out = df_out.drop("source_long_Chrome Cache", axis=1)
 
     return df_out
 
@@ -207,6 +196,16 @@ def get_msg_len_feature(df):
     with Timer("Add feature - message length"):
         df['message'] = df['message'].astype(str)
         df['msg_len'] = df.apply(lambda x: int(len(x['message'])), axis=1)
+
+    return df
+
+
+def get_msg_len_feature_src_long(df, src_long_list):
+    with Timer("Add feature - src long message length"):
+        for idx, row in df.itterrows():
+            df['message'] = df['message'].astype(str)
+            df['msg_len'] = df.apply(lambda x: int(len(x['message'])), axis=1)
+
     return df
 
 
@@ -224,6 +223,9 @@ def get_time_delta_from_tagged_activity_feature(df):
             #     df.at[index, 'flagged_activity_dist'] = 0
             # if row['tag'] != 1:
             # check forward
+            t_past = None
+            t_current = None  # the last time entry I saw
+            t_future = None  # the next time entry I see
             for i in range(df.shape[0] - index + 1):
                 # set my spot to the current observation timestamp
                 i += index
@@ -245,8 +247,51 @@ def get_time_delta_from_tagged_activity_feature(df):
                     break
 
             if index % 10000 == 0:
-                print("-> % forward complete: ", index / df.shape[0])
+                print("-> % Complete: ", index / df.shape[0])
 
+        # add one so there is no 0, for interaction use later.
+        df['flagged_activity_dist'] = df['flagged_activity_dist'] + 1
+
+    return df
+
+
+# helper function for encode_display_name_feature
+def encode_display_name(dispplay_str):
+    out_str = ''
+    p = Path(dispplay_str)
+    key_dirs = ['windows', 'program files', 'users', 'windows', 'system32', 'common files', 'documents', 'pictures',
+                'appdata', 'roaming', 'local settings', 'application data', 'local', 'desktop',
+                'documents and settings']
+    # excluded 'temp'
+
+    p_str = os.path.splitext(p)[0].lower()
+
+    for idx, dir in enumerate(key_dirs):
+        if idx > 5:
+            out_str = out_str + "\\*"
+        else:
+            if dir in p_str:
+                out_str = out_str + "\\" + dir + "\\*"
+            else:
+                out_str = out_str + "\\*"
+    return out_str
+
+
+# transform display_name column into simplified represenatation
+def encode_display_name_feature(df):
+    with Timer("Add feature - encoded display name"):
+        df['key_dirs'] = df['display_name'].apply(encode_display_name)
+    return df
+
+
+def get_file_depth_feature(display_name_str):
+    p = Path(display_name_str)
+    return len(p.parts)
+
+
+def encode_file_depth_feature(df):
+    with Timer("Add feature - encode file depth feature"):
+        df['file_depth'] = df['display_name'].apply(get_file_depth_feature)
     return df
 
 
@@ -255,18 +300,25 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
     y = ys
 
     with Timer("Build and Fit: Logistic Regression"):
-        log_reg = LogisticRegression(solver='lbfgs', class_weight=class_weights, max_iter=500)
+        log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
         log_reg.fit(X, y)
+
+    # with Timer("Build and Fit: SVC "):
+    #     svc = SVC(max_iter=100, tol=20, random_state=42)
+    #     svc.fit(X, y)
 
     with Timer("Build and Fit: Linear Discriminant Analysis"):
         lda = LinearDiscriminantAnalysis()
         lda.fit(X, y)
+
     with Timer("Build and Fit: KNeighbors Classifier"):
         knn = KNeighborsClassifier()
         knn.fit(X, y)
+
     with Timer("Build and Fit: Decision Tree Classifier"):
         dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
         dtc.fit(X, y)
+
     with Timer("Build and Fit: Random Forest Classifier"):
         rfc = RandomForestClassifier(class_weight=class_weights, random_state=42, max_depth=3)
         rfc.fit(X, y)
@@ -278,6 +330,7 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
                 _save_model(knn, "models\\" + dataset_used + "\\KNNModel_Training.h5")
                 _save_model(dtc, "models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
                 _save_model(rfc, "models\\" + dataset_used + "\\RandomForestModel_Training.h5")
+                # _save_model(svc, "models\\" + dataset_used + "\\SupportVectorClassifier_Training.h5")
 
     return {'Logistic_Regression': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc,
             'Random_Forest': rfc}
@@ -385,6 +438,22 @@ def build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="tr
     return {'Baseline': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc, 'Random_Forest': rfc}
 
 
+def synch_datasets(df_training, df_test):
+    for idx, col in enumerate(df_training):
+        # print(f' training row: {col}, df_test.columns: {df_test.columns}')
+        if col not in df_test.columns:
+            df_training.drop(col, axis=1, inplace=True)
+            print(f'Droppping {col} from training beacuse it is not in test data.')
+
+    for idx, col in enumerate(df_test):
+        # print(f' test row: {col}, df_training.columns: {df_training.columns}')
+        if col not in df_training.columns:
+            df_test.drop(col, axis=1, inplace=True)
+            print(f'Droppping {col} from test beacuse it is not in training data.')
+
+    return df_training, df_test
+
+
 def predict_probs(models, X):
     """ Returns a dictionary of predicted proability vectors using models stored in the input dictionary 'models' on the feature data 'X'
     params:
@@ -405,12 +474,13 @@ def report_model_accuracy(models, Xs, ys):
 
     for i, (key, classifier) in enumerate(models.items()):
         # Get predictions
-        pred = models[key].predict(X)
-        score = accuracy_score(y, pred)
+        # pred = models[key].predict(X)
+        # score = accuracy_score(y, pred)
+        pred = cross_val_score(models[key], X, y, cv=5)
+        mean_cv_accuracy = np.mean(pred)
+        out_accuracy_str += key + " : " + str(mean_cv_accuracy) + "\n"
 
-        out_accuracy_str += key + " : " + str(score) + "\n"
-
-    print("finished report_model_accuracy")
+    print("Finished report_model_accuracy")
 
     return out_accuracy_str
 
@@ -427,14 +497,14 @@ def load_all_models(dataset_used):
     with Timer("Load all models"):
         log_reg = _load_model("models\\" + dataset_used + "\\LogRegModel_Training.h5")
         lda = _load_model("models\\" + dataset_used + "\\LDAModel_Training.h5")
-        # qda = _load_model("models\\" + dataset_used + "\\QDAModel_Training.h5")
         knn = _load_model("models\\" + dataset_used + "\\KNNModel_Training.h5")
         dtc = _load_model("models\\" + dataset_used + "\\DecisionTreeModel_Training.h5")
         rfc = _load_model("models\\" + dataset_used + "\\RandomForestModel_Training.h5")
-        stk = _load_model("models\\" + dataset_used + "\\StackedEnsemble_Training.h5")
+        # stk = _load_model("models\\" + dataset_used + "\\StackedEnsemble_Training.h5")
+        brf = _load_model("models\\" + dataset_used + "\\BestRandomForest_Training.h5")
 
-    return {'Logistic_Regression': log_reg, 'LDA': lda, 'KNN': knn, 'Decision_Tree': dtc,
-            'Random_Forest': rfc, 'Stacking_Ensemble': stk}
+    return {'Logistic_Regression': log_reg, 'LDA': lda, 'KNN': knn, 'Random_Forest': rfc,
+            'Best_Random_Forest': brf, 'Decision_Tree': dtc}
 
 
 def evalutate_models(models, X, y):
@@ -466,9 +536,10 @@ def show_confusion_matrix(models, xs, ys):
     X = xs
     y = ys
 
-    f, axes = plt.subplots(1, 6, figsize=(20, 5), sharey=True, sharex=True)
+    f, axes = plt.subplots(1, 7, figsize=(20, 5), sharey=True, sharex=True)
 
     for i, (key, classifier) in enumerate(models.items()):
+
         y_pred = classifier.predict(X)
         cf_matrix = confusion_matrix(y, y_pred)
         disp = ConfusionMatrixDisplay(cf_matrix)
@@ -518,19 +589,19 @@ def show_ROC_plots(models, xs, ys):
 # def analyze_models(models, ):
 
 
-def get_stacked_model(Xs, ys, class_weights, dataset):
+def get_stacked_model(Xs, ys, class_weights, dataset, models):
     X = Xs
     y = ys
 
     stacking_clf = StackingClassifier(
         estimators=[
-            ('lr', LogisticRegression(solver='lbfgs', class_weight=class_weights, random_state=42, max_iter=500)),
-            ('ldr', LinearDiscriminantAnalysis()),
-            # ('knn', KNeighborsClassifier()),
+            ('lr', models['Logistic_Regression']),
+            ('dtr', models['Decision_Tree']),
+            ('brf', models['Best_Random_Forest']),
             # ('rf', RandomForestClassifier(class_weight=class_weights, random_state=42)),
             # ('dt', DecisionTreeClassifier(class_weight=class_weights, random_state=42))
         ],
-        # final_estimator=RandomForestClassifier(class_weight=class_weights, random_state=43),
+        final_estimator=RandomForestClassifier(class_weight=class_weights, random_state=43),
         cv=5  # number of cross-validation folds
     )
     stacking_clf.fit(X, y)
@@ -548,6 +619,51 @@ def get_important_features_from_rand_forest(clf, Xs):
     # Feature importance:
     for score, name in zip(clf.feature_importances_, Xs.columns):
         print(round(score, 2), name)
+
+
+def rand_grid_search_rand_forest(X, y, class_weights):
+    with Timer("Hyperparameter Tuning - Random grid search"):
+        print("Starting random grid search for Random Forest Classifier")
+        # Number of trees in random forest
+        n_estimators = [int(x) for x in np.linspace(start=64, stop=128, num=10)]
+        # Number of features to consider at every split
+        max_features = ['auto', 'sqrt']
+        # Maximum number of levels in tree
+        max_depth = [int(x) for x in np.linspace(10, 110, num=11)]
+        max_depth.append(None)
+        # Minimum number of samples required to split a node
+        min_samples_split = [2, 5, 10]
+        # Minimum number of samples required at each leaf node
+        min_samples_leaf = [1, 2, 4]
+        # Method of selecting samples for training each tree
+        bootstrap = [True, False]
+        # Create the random grid
+        random_grid = {'n_estimators': n_estimators,
+                       'max_features': max_features,
+                       'max_depth': max_depth,
+                       'min_samples_split': min_samples_split,
+                       'min_samples_leaf': min_samples_leaf,
+                       'bootstrap': bootstrap}
+
+        # Use the random grid to search for best hyperparameters
+        # First create the base model to tune
+        rf = RandomForestClassifier(class_weight=class_weights)
+        # Random search of parameters, using 5 fold cross validation,
+        # search across 100 different combinations, and use all available cores
+        rf_random = RandomizedSearchCV(estimator=rf, param_distributions=random_grid, n_iter=100, cv=5, verbose=2,
+                                       random_state=42, n_jobs=-1)
+        # Fit the random search model
+        rf_random.fit(X, y)
+
+        # get best model
+        best_random = rf_random.best_estimator_
+        # printaccuracy_rpt = report_model_accuracy({"Random Forest - Rand Grid Search":best_random}, X, y)
+
+        # see how this model does
+        _save_model(best_random, "models\\training\\BestRandomForest_Training.h5")
+
+    # print best params:
+    return best_random, rf_random.best_params_
 
 
 # def gridSearchCV(model, data):
@@ -697,7 +813,6 @@ def visualize_model(model,
 
 # Prune the tree!
 def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
-
     clf = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
     path = clf.cost_complexity_pruning_path(X_train, y_train)
     ccp_alphas, impurities = path.ccp_alphas, path.impurities
@@ -709,7 +824,6 @@ def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
     ax.set_ylabel("total impurity of leaves")
     ax.set_title("Total Impurity vs effective alpha for training set")
     plt.show()
-
 
     # now train the tree with the effective alphas
     clfs = []
@@ -765,4 +879,113 @@ def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
     plt.show()
 
 
+def grid_serach_cv_knn(X, y):
+    # take actions and fit a c2_fixed_model that will do well on the test set
+    k_range = list(range(1, 5))
+    leaf_range = list(range(5, 20, 5))
+    knn = KNeighborsClassifier(algorithm='auto')
+    params = {
+        'n_neighbors': k_range,
+        'leaf_size': leaf_range,
+        'p': (1, 2),
+        'weights': ('uniform', 'distance'),
+        'metric': ('minkowski', 'chebyshev')
+    }
 
+    # with GridSearch
+    grid_search_KNN = GridSearchCV(
+        estimator=knn,
+        param_grid=params,
+        scoring='accuracy',
+        n_jobs=-1,
+        cv=5)
+
+    # Commented out so the search does not run
+    knn_grid = grid_search_KNN.fit(X, y)
+
+    # Parameter setting that gave the best results on the hold out data.
+    print(grid_search_KNN.best_params_)
+
+    # Mean cross-validated score of the best_estimator
+    print('Best Score - KNN:', grid_search_KNN.best_score_)
+
+
+def create_decision_tree_graph(model, feature_names):
+    dot_data = StringIO()
+    export_graphviz(model, out_file=dot_data,
+                    filled=True, rounded=True,
+                    special_characters=True,
+                    feature_names=feature_names,
+                    class_names=['0', '1'])
+
+    graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
+    graph.write_png('DecisionTree.png')
+    Image(graph.create_png())
+
+
+def forward_selection_gridcv(model, X, y, cv):
+    # X.drop("datetime", axis=1, inplace=True)
+
+    # select only the numeric features to use
+    numeric_features = X.select_dtypes('number').columns
+    print(len(numeric_features), "numeric features:", numeric_features)
+
+    selected_features_forward = []  # placeholder to contain list of feature name text strings (column names)
+    model_scores_forward = []  # placeholder to keep list of scores per fitted model (length = feature qty-1)
+    best_score_forward = np.inf  # start as bad as possible, to be replaced with best score
+    best_idx_forward = None  # placeholder
+    best_features_forward = None  # placeholder to contain list of feature name text strings (column names)
+
+    for idx, num_feats in enumerate(range(1, len(numeric_features))):
+        with Timer():
+            # ----------------START STUDENT CODE -----------------------
+            print(f'Starting {num_feats} features')
+
+            # Create Sequential Feature Selector with Cross validation, dataspace_rmse for each number of features
+            sfs_fwd = SequentialFeatureSelector(model, cv=cv, scoring='accuracy',
+                                                n_features_to_select=num_feats)
+
+            # Fit the Selector with numeric features.
+            sfs_fwd.fit(X[numeric_features], y)
+
+            # Store features selected during each iteration for reference
+            selected_features_forward.append(sfs_fwd.get_support(indices=False))
+
+            # Set X for the selected features of this number of features best selection
+            X_sfs_fwd = X[numeric_features].iloc[:, selected_features_forward[idx]]
+
+            # Fit the model using the selected features
+            model.fit(X_sfs_fwd, y)
+
+            # Score using cv, make it postive and take the mean as well
+            sfs_fwd_score = np.mean(np.abs(
+                cross_val_score(model, X_sfs_fwd, y,
+                                scoring='accuracy',
+                                cv=cv,
+                                n_jobs=-1)))
+
+            # Store score for later reference
+            model_scores_forward.append(sfs_fwd_score)
+
+            # Update best score if the current
+            if sfs_fwd_score < best_score_forward:
+                best_score_forward = sfs_fwd_score
+                best_idx_forward = idx
+                best_features_forward = selected_features_forward[idx]
+
+        print(f'Completed {num_feats} features')
+
+    print(f'Best greedy forward: {best_score_forward}, with features: {best_features_forward}')
+    print("\n With parameters: \n\n", X[numeric_features].iloc[:, selected_features_forward[best_idx_forward]])
+
+
+def grid_serach_cv_logistic_regression(X, y):
+    grid = {"C": np.logspace(-3, 3, 7), "penalty": ["l1", "l2"]}  # l1 lasso l2 ridge
+    logreg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1500)
+    logreg_cv = GridSearchCV(logreg, grid, cv=10)
+    logreg_cv.fit(X, y)
+
+    _save_model(logreg_cv, "models\\training\\LogRegModel_Training.h5")
+
+    print("tuned hpyerparameters :(best parameters) ", logreg_cv.best_params_)
+    print("accuracy :", logreg_cv.best_score_)
