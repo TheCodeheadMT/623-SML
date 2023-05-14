@@ -4,6 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as col
 from sklearn import preprocessing
+from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import export_graphviz
 from six import StringIO
@@ -12,6 +13,7 @@ import pydotplus
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_curve, roc_auc_score, RocCurveDisplay, confusion_matrix
 import SMLFinalPreprocessor as util
+
 
 #### START: PREPROCESS DATA ################################################
 PREPROCESS = False
@@ -72,7 +74,7 @@ NORMAL_CLS = True
 if NORMAL_CLS:
 
     ####### DESCRIBE DATA ##########################################################
-    DESCRIBE_DATA = True
+    DESCRIBE_DATA = False
     if DESCRIBE_DATA:
         pass
         # Read in training data
@@ -94,7 +96,6 @@ if NORMAL_CLS:
 
         util.corr_plots(df_new, title="Raw Training dataset Correlation")
 
-        exit()
         util.data_explore(df_new[['tag', 'file_depth', 'msg_len']])
 
         # pairwise plots
@@ -116,7 +117,7 @@ if NORMAL_CLS:
     ####### LOAD DATA ##########################################################
     # read in dataset1.csv
     df1 = pd.read_csv(
-        "DATA_EXPLORE_MANUAL_LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-training_timeline1.csv")
+        "MANUAL_LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-training_timeline1.txt")
 
     df2 = pd.read_csv(
         "MANUAL_LABELED_ENCODED_2023-02-17_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-test_timeline1.txt")
@@ -191,8 +192,13 @@ if NORMAL_CLS:
 
         REPORT_RESULTS = True
         if REPORT_RESULTS:
+            df1_train_models = {"Logistic_Regression":df1_train_models['Logistic_Regression'],
+                                "Decision_Tree":df1_train_models['Decision_Tree']}
             # Print accuracy results
             print(util.report_model_accuracy(df1_train_models, X, y))
+
+            util.visualize_model(df1_train_models['Logistic_Regression'], 'Logistic Regression\n C=0.001, l2 penalty', X, y )
+            util.visualize_model(df1_train_models['Decision_Tree'], 'Decision Tree \n CCP Alpha=0.01', X, y)
 
             # Show confusion matrix for all models
             util.show_confusion_matrix(df1_train_models, X, y)
@@ -201,17 +207,25 @@ if NORMAL_CLS:
             util.show_ROC_plots(df1_train_models, X, y)
 
             #Create decision tree visualization
-            #util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names)
+            util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names)
+            for parameter in df1_train_models['Decision_Tree'].get_params():
+                print(parameter, ': \t', df1_train_models['Decision_Tree'].get_params()[parameter])
+
+            #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
 
 
-        TEST_WITH_BEST_MODEL = True
+        TEST_WITH_BEST_MODEL = False
         if TEST_WITH_BEST_MODEL:
             print('Testing best model:')
 
             # Test the best model
-            best_model = df1_train_models['Logistic_Regression']
+            #best_model = df1_train_models['Logistic_Regression']
+            best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
+            #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
+            best_model.fit(X, y)
 
-            # print prarms:
+
+        # print prarms:
             for parameter in best_model.get_params():
                 print(parameter, ': \t', best_model.get_params()[parameter])
 

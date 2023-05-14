@@ -301,6 +301,7 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
 
     with Timer("Build and Fit: Logistic Regression"):
         log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
+        #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
         log_reg.fit(X, y)
 
     # with Timer("Build and Fit: SVC "):
@@ -316,7 +317,8 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
         knn.fit(X, y)
 
     with Timer("Build and Fit: Decision Tree Classifier"):
-        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
+        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=0.01)
+        #dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
         dtc.fit(X, y)
 
     with Timer("Build and Fit: Random Forest Classifier"):
@@ -536,7 +538,7 @@ def show_confusion_matrix(models, xs, ys):
     X = xs
     y = ys
 
-    f, axes = plt.subplots(1, 7, figsize=(20, 5), sharey=True, sharex=True)
+    f, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True, sharex=True)
 
     for i, (key, classifier) in enumerate(models.items()):
 
@@ -865,6 +867,7 @@ def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
     # When ccp_alpha is set to zero and keeping the other default parameters of DecisionTreeClassifier,
     # the tree overfits, leading to a 100% training accuracy and 88% testing accuracy. As alpha increases,
     # more of the tree is pruned, thus creating a decision tree that generalizes better. In this example,
+
     # setting ccp_alpha=0.015 maximizes the testing accuracy.
     train_scores = [clf.score(X_train, y_train) for clf in clfs]
     test_scores = [clf.score(X_test, y_test) for clf in clfs]
