@@ -175,10 +175,10 @@ if NORMAL_CLS:
 
         FEATURE_SELECTION = False
         if FEATURE_SELECTION:
-            util.forward_selection_gridcv(df1_train_models['Best_Random_Forest'], X, y, cv=2)
+            util.forward_selection_gridcv(df1_train_models['Logistic_Regression'], X, y, cv=2)
             exit()
 
-        TUNE_HYPERPARAMS = False
+        TUNE_HYPERPARAMS = True
         if TUNE_HYPERPARAMS:
             #stacked_mod = util.get_stacked_model(X, y, class_weight, "training", df1_train_models)
             #df1_train_models['Stacking_Model'] = stacked_mod
@@ -194,6 +194,7 @@ if NORMAL_CLS:
         if REPORT_RESULTS:
             df1_train_models = {"Logistic_Regression":df1_train_models['Logistic_Regression'],
                                 "Decision_Tree":df1_train_models['Decision_Tree']}
+
             # Print accuracy results
             print(util.report_model_accuracy(df1_train_models, X, y))
 
@@ -207,30 +208,42 @@ if NORMAL_CLS:
             util.show_ROC_plots(df1_train_models, X, y)
 
             #Create decision tree visualization
-            util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names)
-            for parameter in df1_train_models['Decision_Tree'].get_params():
-                print(parameter, ': \t', df1_train_models['Decision_Tree'].get_params()[parameter])
+            #util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names)
+            # for parameter in df1_train_models['Best_Random_Forest'].get_params():
+            #     print(parameter, ': \t', df1_train_models['Best_Random_Forest'].get_params()[parameter])
+
+            # for idx in range(0, 4):
+            #     util.create_decision_tree_graph(df1_train_models['Best_Random_Forest'].estimators_[idx],
+            #                                     feature_names,
+            #                                     'Estimator_'+str(idx))
+
+            for idx, (key, md) in enumerate(df1_train_models.items()):
+                util.visualize_model(md, key, X, y)
+
 
             #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
 
 
-        TEST_WITH_BEST_MODEL = False
+        TEST_WITH_BEST_MODEL = True
         if TEST_WITH_BEST_MODEL:
             print('Testing best model:')
 
             # Test the best model
-            #best_model = df1_train_models['Logistic_Regression']
-            best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
+            best_model = df1_train_models['Logistic_Regression']
+            #best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
             #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
-            best_model.fit(X, y)
+            #best_model.fit(X, y)
+            #best_model = df1_train_models['Logistic_Regression']
 
 
         # print prarms:
             for parameter in best_model.get_params():
                 print(parameter, ': \t', best_model.get_params()[parameter])
 
-            pred = best_model.predict(X_test)
-            score = accuracy_score(y_test, pred)
+            #pred = best_model.predict(X_test)
+            #score = accuracy_score(y_test, pred)
+
+            #
 
             # check performance on new data...
             util.visualize_model(best_model, 'Logistic_Regression', X_test, y_test )
@@ -238,6 +251,8 @@ if NORMAL_CLS:
             util.show_confusion_matrix(df1_train_models, X_test, y_test)
 
             util.show_ROC_plots({"Logistic_Regression": best_model}, X_test, y_test)
+
+            util.precision_recall_threshold(best_model, X_test,y_test)
 
 
     # test against our test data

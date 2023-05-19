@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import sklearn
 from keras import Model
 from matplotlib.ticker import FormatStrFormatter, StrMethodFormatter
+from sklearn import metrics
+from sklearn.metrics import precision_recall_curve
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SequentialFeatureSelector
@@ -538,7 +540,7 @@ def show_confusion_matrix(models, xs, ys):
     X = xs
     y = ys
 
-    f, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True, sharex=True)
+    f, axes = plt.subplots(1, 6, figsize=(20, 5), sharey=True, sharex=True)
 
     for i, (key, classifier) in enumerate(models.items()):
 
@@ -627,11 +629,11 @@ def rand_grid_search_rand_forest(X, y, class_weights):
     with Timer("Hyperparameter Tuning - Random grid search"):
         print("Starting random grid search for Random Forest Classifier")
         # Number of trees in random forest
-        n_estimators = [int(x) for x in np.linspace(start=64, stop=128, num=10)]
+        n_estimators = [int(x) for x in np.linspace(start=2, stop=24, num=12)]
         # Number of features to consider at every split
         max_features = ['auto', 'sqrt']
         # Maximum number of levels in tree
-        max_depth = [int(x) for x in np.linspace(10, 110, num=11)]
+        max_depth = [int(x) for x in np.linspace(2, 24, num=12)]
         max_depth.append(None)
         # Minimum number of samples required to split a node
         min_samples_split = [2, 5, 10]
@@ -791,6 +793,8 @@ def visualize_model(model,
     """
     y_pred = model.predict(x_visualize)
     y_pred = np.array(y_pred > 0.5, dtype=int)
+    #print("USING .6 THRESHOLD")
+    #y_pred = np.array(y_pred > 0.6, dtype=int)
     y_true = y_visualize
     class_names = ['System', 'User']
 
@@ -913,7 +917,7 @@ def grid_serach_cv_knn(X, y):
     print('Best Score - KNN:', grid_search_KNN.best_score_)
 
 
-def create_decision_tree_graph(model, feature_names):
+def create_decision_tree_graph(model, feature_names, title):
     dot_data = StringIO()
     export_graphviz(model, out_file=dot_data,
                     filled=True, rounded=True,
@@ -922,8 +926,24 @@ def create_decision_tree_graph(model, feature_names):
                     class_names=['0', '1'])
 
     graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
-    graph.write_png('DecisionTree.png')
+
+    graph.write_png(title+'_DecisionTree.png')
     Image(graph.create_png())
+
+# This may not the best way to view each estimator as it is small
+# def create_random_forest_tree_graph(rf_model, X, y)
+#     fn=
+#     cn="tag"
+#     fig, axes = plt.subplots(nrows = 1,ncols = 5,figsize = (10,2), dpi=900)
+#     for index in range(0, 4):
+#         tree.plot_tree(rf_model.estimators_[index],
+#                        feature_names = fn,
+#                        class_names=cn,
+#                        filled = True,
+#                        ax = axes[index]);
+#
+#         axes[index].set_title('Estimator: ' + str(index), fontsize = 11)
+#     fig.savefig('rf_5trees.png')
 
 
 def forward_selection_gridcv(model, X, y, cv):
@@ -981,14 +1001,52 @@ def forward_selection_gridcv(model, X, y, cv):
     print(f'Best greedy forward: {best_score_forward}, with features: {best_features_forward}')
     print("\n With parameters: \n\n", X[numeric_features].iloc[:, selected_features_forward[best_idx_forward]])
 
+    out = X[numeric_features].iloc[:, selected_features_forward[best_idx_forward]]
+    out.to_csv("best_features_forward_selection_log_reg.csv")
+
 
 def grid_serach_cv_logistic_regression(X, y):
-    grid = {"C": np.logspace(-3, 3, 7), "penalty": ["l1", "l2"]}  # l1 lasso l2 ridge
+    #parameters = [{'solver': ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga']},
+     #             {'penalty':['none', 'elasticnet', 'l1', 'l2']},
+    #              {'C':[0.001, 0.01, 0.1, 1, 10, 100]}]
+    grid = {"C": np.logspace(-3, 3, 100), "penalty": ["l1", "l2", "none", 'elasticnet']}  # l1 lasso l2 ridge
     logreg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1500)
-    logreg_cv = GridSearchCV(logreg, grid, cv=10)
+    logreg_cv = GridSearchCV(logreg, grid, cv=5)
     logreg_cv.fit(X, y)
 
     _save_model(logreg_cv, "models\\training\\LogRegModel_Training.h5")
 
     print("tuned hpyerparameters :(best parameters) ", logreg_cv.best_params_)
     print("accuracy :", logreg_cv.best_score_)
+
+
+def precision_recall_threshold(model, X, y):
+
+    test_x = X
+    test_y = y
+
+    pred_y=model.predict(test_x)
+    probs_y=model.predict_proba(test_x)
+
+    precision, recall, thresholds = precision_recall_curve(test_y, probs_y[:, 1])
+    #retrieve probability of being 1(in second column of probs_y)
+    pr_auc = metrics.auc(recall, precision)
+
+    plt.title("Precision-Recall vs Threshold Chart")
+    plt.plot(thresholds, precision[: -1], "b--", label="Precision")
+    plt.plot(thresholds, recall[: -1], "r--", label="Recall")
+    plt.ylabel("Precision, Recall")
+    plt.xlabel("Threshold")
+    plt.legend(loc="upper left")
+    plt.ylim([0,1])
+    plt.show()
+
+def custom_predict(log_model, X, threshold):
+    probs = log_model.predict_proba(X)
+    return (probs[:, 1] > threshold).astype(int)
+
+
+#confusion matrix after applying threshold
+# threshold = 0.2
+#y_pred = (model.predict_proba(X_test)[:, 1] > threshold).astype('float')
+#confusion_matrix(y_test, y_pred)
