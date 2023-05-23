@@ -267,8 +267,16 @@ if ANN == True:
     # Data already split for test and validation, training is external 
     # x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-    # Split data into two equal groups for training and validation maintaining class distributions
-    df1_train_ann, df1_validation_ann = train_test_split(df1, train_size=0.7, random_state=42)
+    # read in dataset1.csv
+    df1 = pd.read_csv(
+        "MANUAL_LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-training_timeline1.txt")
+
+    df2 = pd.read_csv(
+        "MANUAL_LABELED_ENCODED_2023-02-17_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-test_timeline1.txt")
+
+
+    # remove any columns that are not in both datasets
+    util.synch_datasets(df1, df2)
 
     # Set weights for training
     n_class_1 = df1_train_ann[df1_train['tag'] == 1].shape[0]

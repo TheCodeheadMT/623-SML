@@ -9,14 +9,14 @@ from IPython.display import Image
 
 import numpy as np
 import pandas as pd
-import pydotplus
+#import pydotplus
 import seaborn as sns
 import matplotlib.pyplot as plt
 import sklearn
 from keras import Model
 from matplotlib.ticker import FormatStrFormatter, StrMethodFormatter
 from sklearn import metrics
-from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import precision_recall_curve, classification_report
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SequentialFeatureSelector
@@ -32,7 +32,6 @@ from sklearn.model_selection import RandomizedSearchCV
 # from sklearn.keras.wrappers.scikit_learn.KerasClassifier,
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
 from sklearn.metrics import balanced_accuracy_score
-
 import xgboost as xgb
 
 
@@ -1053,3 +1052,28 @@ def custom_predict(log_model, X, threshold):
 # threshold = 0.2
 #y_pred = (model.predict_proba(X_test)[:, 1] > threshold).astype('float')
 #confusion_matrix(y_test, y_pred)
+
+
+          
+# plot the confusion matrix 
+def plot_cm(actual: np.ndarray, prediction: np.ndarray):
+    """
+    make a plot for a confusion matrix
+    
+    :param actual: the actual classes 
+    :param prediction:  the predicted classes
+    :return: None
+    """
+    # use the probabilities to make actual predictions of each class
+    prediction[prediction > 0.5] = 1
+    prediction[prediction <= 0.5] = 0
+    # use pandas to make a confusion matrix
+    data = {'y_Actual': actual.squeeze(),
+            'y_Predicted': prediction.squeeze()
+            }
+    df = pd.DataFrame(data, columns=['y_Actual', 'y_Predicted'])
+    confusion_matrix = pd.crosstab(df['y_Actual'], df['y_Predicted'], rownames=['Actual'], colnames=['Predicted'])
+    # use seaborn to plot a heatmap of the confusion matrix
+    sn.heatmap(confusion_matrix, annot=True)
+    #plt.show()
+    plt.savefig('confusion_matrix.png')
