@@ -31,6 +31,8 @@ from sklearn.model_selection import RandomizedSearchCV
 # from keras.models import KerasClassifier
 # from sklearn.keras.wrappers.scikit_learn.KerasClassifier,
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
+from sklearn.metrics import balanced_accuracy_score
+
 import xgboost as xgb
 
 
@@ -478,11 +480,12 @@ def report_model_accuracy(models, Xs, ys):
 
     for i, (key, classifier) in enumerate(models.items()):
         # Get predictions
-        # pred = models[key].predict(X)
+        y_pred = models[key].predict(X)
         # score = accuracy_score(y, pred)
         pred = cross_val_score(models[key], X, y, cv=5)
         mean_cv_accuracy = np.mean(pred)
-        out_accuracy_str += key + " : " + str(mean_cv_accuracy) + "\n"
+        bal_acc = balanced_accuracy_score(y, y_pred)
+        out_accuracy_str += key + " : " + str(mean_cv_accuracy) + "\n" + "bal acc:" + str(bal_acc)
 
     print("Finished report_model_accuracy")
 
