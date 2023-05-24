@@ -586,6 +586,7 @@ def show_ROC_plots(models, xs, ys):
     plt.title("Receiver Operating Characteristic \n User trace classification")
     # print(str(df_names) + "\n Receiver Operating Characteristic")
 
+    #plt.savefig('pml_figures/roc_curve.png')
     # Display plot
     plt.show()
 
@@ -1039,6 +1040,7 @@ def precision_recall_threshold(model, X, y):
     plt.xlabel("Threshold")
     plt.legend(loc="upper left")
     plt.ylim([0,1])
+    #plt.savefig("pml_figures/precision_recall_curve.png")
     plt.show()
 
 def custom_predict(log_model, X, threshold):
