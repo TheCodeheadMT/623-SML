@@ -178,7 +178,7 @@ if NORMAL_CLS:
             util.forward_selection_gridcv(df1_train_models['Logistic_Regression'], X, y, cv=2)
             exit()
 
-        TUNE_HYPERPARAMS = True
+        TUNE_HYPERPARAMS = False
         if TUNE_HYPERPARAMS:
             #stacked_mod = util.get_stacked_model(X, y, class_weight, "training", df1_train_models)
             #df1_train_models['Stacking_Model'] = stacked_mod
@@ -224,7 +224,7 @@ if NORMAL_CLS:
             #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
 
 
-        TEST_WITH_BEST_MODEL = True
+        TEST_WITH_BEST_MODEL = False
         if TEST_WITH_BEST_MODEL:
             print('Testing best model:')
 
@@ -267,8 +267,16 @@ if ANN == True:
     # Data already split for test and validation, training is external 
     # x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-    # Split data into two equal groups for training and validation maintaining class distributions
-    df1_train_ann, df1_validation_ann = train_test_split(df1, train_size=0.7, random_state=42)
+    # read in dataset1.csv
+    df1 = pd.read_csv(
+        "MANUAL_LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-training_timeline1.txt")
+
+    df2 = pd.read_csv(
+        "MANUAL_LABELED_ENCODED_2023-02-17_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-test_timeline1.txt")
+
+
+    # remove any columns that are not in both datasets
+    util.synch_datasets(df1, df2)
 
     # Set weights for training
     n_class_1 = df1_train_ann[df1_train['tag'] == 1].shape[0]
