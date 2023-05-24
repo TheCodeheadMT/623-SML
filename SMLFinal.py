@@ -178,7 +178,7 @@ if NORMAL_CLS:
             util.forward_selection_gridcv(df1_train_models['Logistic_Regression'], X, y, cv=2)
             exit()
 
-        TUNE_HYPERPARAMS = True
+        TUNE_HYPERPARAMS = False
         if TUNE_HYPERPARAMS:
             #stacked_mod = util.get_stacked_model(X, y, class_weight, "training", df1_train_models)
             #df1_train_models['Stacking_Model'] = stacked_mod
@@ -224,7 +224,7 @@ if NORMAL_CLS:
             #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
 
 
-        TEST_WITH_BEST_MODEL = True
+        TEST_WITH_BEST_MODEL = False
         if TEST_WITH_BEST_MODEL:
             print('Testing best model:')
 
