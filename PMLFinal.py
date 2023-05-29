@@ -1,7 +1,7 @@
 from pandas import read_csv
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, BatchNormalization
-from sklearn.model_selection import cross_val_score
+from tensorflow.keras.layers import Dense, BatchNormalization, Dropout
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -56,7 +56,7 @@ def tune_final(num_training_iterations):
 
     print("Best hyperparameters found were: ", results.get_best_result().config)
 
-def train_final(config):
+def train_final(config, ):
     batch_size = 128
     num_classes = 1
     epochs = 10
@@ -104,12 +104,12 @@ def train_final(config):
         callbacks=[TuneReportCallback({"balanced_accuracy": "bal_acc"})],
     )
 
-def get_model(input_shape):
+def get_model(input_shape, overfit=False, reg=False):
     num_classes = 1
     feature_size = input_shape
 
     metrics = [
-    tf.keras.metrics.BinaryAccuracy(name='accuracy'),
+    tf.keras.metrics.BinaryAccuracy(name='balanced_accuracy'),
     tf.keras.metrics.Precision(name='precision'),
     tf.keras.metrics.Recall(name='recall'),
     tf.keras.metrics.AUC(name='prc', curve='PR')]
@@ -117,15 +117,25 @@ def get_model(input_shape):
     input_tensor = tf.keras.layers.Input(shape=(feature_size))
     current_tensor = input_tensor
     current_tensor = BatchNormalization()(current_tensor)
-    current_tensor = Dense(32, activation='tanh')(current_tensor)
-    current_tensor = Dense(16, activation='tanh')(current_tensor)
+    current_tensor = Dense(32, activation='relu')(current_tensor)
+    if reg:
+        current_tensor = Dropout(.2)(current_tensor)
+    if overfit:
+        current_tensor = Dense(32, activation='relu')(current_tensor)
+        if reg:
+            current_tensor = Dropout(.2)(current_tensor)
+
+    current_tensor = Dense(16, activation='relu')(current_tensor)
+    if reg:
+        current_tensor = Dropout(.2)(current_tensor)
+
     current_tensor = Dense(num_classes, activation='sigmoid')(current_tensor)
     output_tensor = current_tensor
     model = Model(input_tensor, output_tensor)
  
     model.compile(
         loss="binary_crossentropy",
-        optimizer=tf.keras.optimizers.Adam(lr=0.0001),
+        optimizer=tf.keras.optimizers.Adam(lr=0.001),
         metrics=metrics
     )
 
@@ -182,11 +192,11 @@ def final():
     TRAIN = False
     if TRAIN:
         # get model
-        model = get_model(input_shape=X_train.shape[1])
+        model = get_model(input_shape=X_train.shape[1], overfit=True, reg=True)
         
         model.summary()
 
-        plot_model(model, "pml_figures/SML_final_model.png")
+        #plot_model(model, "pml_figures/reg_model.png")
 
         # fit callbacks
         earlystop = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=0.000000000001, patience=5)
@@ -194,25 +204,27 @@ def final():
 
         # mode fit config items
         batch_size = 128
-        epochs = 20
+        epochs = 50
 
         history = model.fit(x=X_train,
                                 y=y_train,
                                 validation_data=(X_valid, y_valid),
                                 class_weight=class_weight,
-                                batch_size=batch_size, 
+                                batch_size=batch_size,
+                                shuffle=True,
                                 epochs=epochs,
                                 callbacks=[tensorboard_callback, earlystop])
 
-        model.save('pml_figures/model_D32tan_D16tan_D1sig.h5')
+        model.save('models/model_reg_D32tan_D16tan_D1sig.h5')
 
         print("Baseline model\n")
+        
     else:
 
-        model = get_model(input_shape=X_train.shape[1])
-        model.load_weights('pml_figures/model_D32tan_D16tan_D1sig.h5')
+        model = get_model(input_shape=X_train.shape[1], overfit=True, reg=True)
+        model.load_weights('models/model_reg_D32tan_D16tan_D1sig.h5')
     
-    REPORT_RESULTS=True
+    REPORT_RESULTS=False
     if REPORT_RESULTS:
         
         class_names = ['system', 'user']
@@ -233,10 +245,19 @@ def final():
         print('Accuracy on training data: {}%, {}(balanaced) \n Error on training data: {}'.format(scores[1], bal_acc_train, 1 - scores[1]))   
         print('\n')  
 
-        #cross val score
-        # pred = cross_val_score(model, X_train, y_train, cv=5)
-        # mean_cv_accuracy = np.mean(pred)
+        # #cross val score
+        # scoring = 'balanced_accuracy'
+        # kfold = KFold(n_splits=10)
+        # cv_results = cross_val_score(model, X_train, y_train, cv=kfold, scoring ='accuracy')
+        # results.append(cv_results)
+        # #names.append(name)
+        # msg = "%f (%f)" % (cv_results.mean(), cv_results.std())
+        # print(msg)
+
+        # #pred = cross_val_score(model, X_train, y_train, cv=5, scoring='balanced_accuracy')
+        # #mean_cv_accuracy = np.mean(pred)
         # print("Mean accuracy CV : " + str(mean_cv_accuracy) + "\n")    
+        # exit()
 
         print(classification_report(y_train, y_pred_train, target_names=class_names))
 
@@ -272,7 +293,7 @@ def final():
         plt.savefig('pml_figures/Validation_Confusion_matrix_norm')
 
 
-    TEST_WITH_BEST_MODEL = False
+    TEST_WITH_BEST_MODEL = True
     if TEST_WITH_BEST_MODEL:
         print('Testing best model:')
         class_names = ['system', 'user']
@@ -299,12 +320,14 @@ def final():
         print(classification_report(y_test, y_pred_test, target_names=class_names))
 
         model_CM = confusion_matrix(y_pred=y_pred_test, y_true=y_test)                                                            
-
+        
+        plt.figure()
         plot_confusion_matrix(model_CM, classes=class_names, 
                             title='Confusion matrix, without normalization - Test')
         plt.savefig('pml_figures/Test_Confusion_matrix_no_norm')
-
-        plot_confusion_matrix(model_CM, classes=class_names, title='Confusion matrix (norm) - Test')
+        
+        plt.figure()
+        plot_confusion_matrix(model_CM, normalize=True, classes=class_names, title='Confusion matrix (norm) - Test')
         plt.savefig('pml_figures/Test_Confusion_matrix_norm')
 
 
@@ -394,7 +417,7 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix'
     plt.title(title)
     plt.colorbar()
     tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes, rotation=45)
+    plt.xticks(tick_marks, classes)
     plt.yticks(tick_marks, classes)
 
     fmt = '.2f' if normalize else 'd'
