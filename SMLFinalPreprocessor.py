@@ -5,6 +5,8 @@ import pickle
 import time
 from io import StringIO
 from pathlib import Path
+
+import pydotplus
 from IPython.display import Image
 
 import numpy as np
@@ -83,13 +85,21 @@ def box_plots(df):
     # df[] = (df.iloc[:, 2:] == 1).idxmax(1)
 
     # actuals and predicted to one column
-    # df = df.melt(id_vars ='season', value_vars=['actuals', 'predicted'])
+    #df = df.melt(id_vars ='msg_len', value_vars=['file_depth', 'msg_len', 'source', 'source_long', 'key_dirs'])
+    df1 = df[['file_depth', 'msg_len', 'source', 'source_long', 'key_dirs']]
+    #df1['msg_len' > 600] = np.mean(df1['msg_len'])
+    df1_melt = pd.melt(df1)
 
-    # sn.boxplot(x='season', y='value', hue='variable', data=df, palette="Set3")
+    sns.boxplot(x='variable', y='value', hue='variable', data=df1_melt, palette="Set3")
+
+    #plt.ylim([0, 50])
+    plt.yscale('log')
+
+    plt.show()
     return df
 
 
-def data_explore(df):
+def data_explore_msg_len_file_depth(df):
 
     for ftr in df:
         # print description of this feature
@@ -98,18 +108,29 @@ def data_explore(df):
     df1 = df[df['tag'] == 1]
     df0 = df[df['tag'] == 0]
 
+    bincount = 20
+    bins_file_msg_len = np.linspace(0, 2691, bincount)
     # show a historgram for each class 0, 1
-    plt.hist(df0['msg_len'], label="System msg_len", alpha=.25)
-    plt.hist(df1['msg_len'], label="User msg_len", alpha=.25)
-    plt.hist(df0['file_depth'], label="System file_depth", alpha=.25)
-    plt.hist(df1['file_depth'], label="User file_depth", alpha=.25)
+    plt.figure(1)
+    plt.hist(df0['msg_len'], bins_file_msg_len, label="System msg_len", alpha=.25)
+    plt.hist(df1['msg_len'], bins_file_msg_len, label="User msg_len", alpha=.25)
     plt.legend(loc='upper right')
-    plt.title("System vs. User Histogram Plots")
+    plt.title("System vs. User Message Length")
     plt.yscale('log')
-    plt.xscale('log')
+    #plt.xscale('log')
     plt.show()
 
-
+    plt.figure(2)
+    bins_file_depth = np.linspace(0, 20, bincount)
+    # show a historgram for each class 0, 1
+    #plt.axis([0, 18, 0, 10])
+    plt.yscale('log')
+    #plt.xscale('log')
+    plt.hist(df0['file_depth'], bins_file_depth, label="System file_depth", alpha=.25)
+    plt.hist(df1['file_depth'], bins_file_depth, label="User file_depth", alpha=.25)
+    plt.legend(loc='upper right')
+    plt.title("System vs. User File Depth")
+    plt.show()
 
     # # show covariance for class 1
     print("Covariance Tag 1 (user):\n", df[df.tag == 1].cov(), '\n')
@@ -320,8 +341,8 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
         knn.fit(X, y)
 
     with Timer("Build and Fit: Decision Tree Classifier"):
-        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=0.01)
-        #dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
+        #dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=0.01)
+        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
         dtc.fit(X, y)
 
     with Timer("Build and Fit: Random Forest Classifier"):
@@ -672,81 +693,6 @@ def rand_grid_search_rand_forest(X, y, class_weights):
     # print best params:
     return best_random, rf_random.best_params_
 
-
-# def gridSearchCV(model, data):
-#     X = data.drop(["datetime", "tag"], axis=1)
-#     y = data.tag
-#     #    minLogAlpha = -3
-#     #    maxLogAlpha = 7
-#     #    alphaCount = 1000
-#     #    alphagrid = np.zeros(alphaCount)  # placeholder for the alphas
-#     #    alphagrid = np.logspace(minLogAlpha,maxLogAlpha,num=alphaCount)
-#
-#     model1 = model['Decision_Tree']
-#     tree_param = {'criterion': ['gini', 'entropy'],
-#                   'max_depth': [4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 30, 40, 50, 70, 90, 120, 150]}
-#     lcv_model = None  # placeholder for GridSearchCV() wrapper of Lasso() model
-#     best_lasso_alpha_decision_tree = None  # placeholder
-#     best_lasso_score_decision_tree = None  # placeholder
-#
-#     model2 = model['Random_Forest']
-#     lcv_model = None  # placeholder for GridSearchCV() wrapper of Lasso() model
-#     best_lasso_alpha_decision_tree = None  # placeholder
-#     best_lasso_score_decision_tree = None  # placeholder
-#
-#     # # define evaluation procedure
-#     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
-#     # # evaluate model
-#     # scores = cross_val_score(model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
-#     # # summarize performance
-#     # print('Mean ROC AUC: %.3f' % mean(scores))
-#
-#     lasso_cv_results = pd.DataFrame()  # placeholder
-#
-#     # ------------- START STUDENT CODE ------------------
-#
-#     # Create Lasso model
-#     lasso = Lasso()
-#
-#     # Wrap Lasso() GridSearch CV using Lasso, alphagrid, dataspace_rmse scoring, kfold_count and return training scores.
-#     lcv_model = GridSearchCV(Lasso(),
-#                              {'alpha': alphagrid},
-#                              scoring=dataspace_rmse,
-#                              cv=kfold_count,
-#                              return_train_score=True)
-#
-#     # Fit GridSearchCV to nonTest numeric features and log_y_nontest
-#     lcv_model.fit(X_nonTest_scaled[numeric_features], log_y_nonTest)
-#
-#     # Store best lasso alpha
-#     best_lasso_alpha = lcv_model.best_params_['alpha']
-#
-#     # Store best lasso score - multiplied by -1 for comparision with other scores
-#     best_lasso_score = lcv_model.best_score_ * -1
-#
-#     # Store results in dataframe for later reference
-#     lasso_cv_results = pd.DataFrame(lcv_model.cv_results_)
-#
-#     #
-#     # # setup model to be tuned
-#     # #model = xgb.XGBClassifier(objective="binary:logistic", random_state=42)
-#     # # put weights in a dict
-#     # param_grid = dict(scale_pos_weights=weights)
-#     #
-#     # # define evalu prodcedure
-#     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=42)
-#     # # define grid search
-#     # grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=cv, scoring='roc_auc')
-#     # # execute search
-#     # grid.fit(X, y)
-#     # print("Best %f using %s" % (grid.best_score_, grid.best_params_))
-#     # # report configs
-#     # means = grid.cv_results_['mean_test_score']
-#     # stds = grid.cv_results_['std_test_score']
-#     # params = grid.cv_results_['params']
-#     # for mean, std, param in zip(means, stds, params):
-#     #     print("%f (%f) with: %r" %  (mean, std, param))
-
 def plot_confusion_matrix(cm, classes,
                           normalize=False,
                           title='Confusion matrix',
@@ -889,6 +835,9 @@ def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
     plt.show()
 
 
+    #_save_model(best_random, "models\\training\\BestRandomForest_Training.h5")
+
+
 def grid_serach_cv_knn(X, y):
     # take actions and fit a c2_fixed_model that will do well on the test set
     k_range = list(range(1, 5))
@@ -968,7 +917,7 @@ def forward_selection_gridcv(model, X, y, cv):
             print(f'Starting {num_feats} features')
 
             # Create Sequential Feature Selector with Cross validation, dataspace_rmse for each number of features
-            sfs_fwd = SequentialFeatureSelector(model, cv=cv, scoring='accuracy',
+            sfs_fwd = SequentialFeatureSelector(model, cv=cv, scoring='balanced_accuracy',
                                                 n_features_to_select=num_feats)
 
             # Fit the Selector with numeric features.
@@ -986,7 +935,7 @@ def forward_selection_gridcv(model, X, y, cv):
             # Score using cv, make it postive and take the mean as well
             sfs_fwd_score = np.mean(np.abs(
                 cross_val_score(model, X_sfs_fwd, y,
-                                scoring='accuracy',
+                                scoring='balanced_accuracy',
                                 cv=cv,
                                 n_jobs=-1)))
 
@@ -1002,10 +951,11 @@ def forward_selection_gridcv(model, X, y, cv):
         print(f'Completed {num_feats} features')
 
     print(f'Best greedy forward: {best_score_forward}, with features: {best_features_forward}')
+    print(X.columns.values.tolist())
     print("\n With parameters: \n\n", X[numeric_features].iloc[:, selected_features_forward[best_idx_forward]])
 
     out = X[numeric_features].iloc[:, selected_features_forward[best_idx_forward]]
-    out.to_csv("best_features_forward_selection_log_reg.csv")
+    out.to_csv("best_features_forward_selection.csv")
 
 
 def grid_serach_cv_logistic_regression(X, y):
@@ -1050,13 +1000,6 @@ def custom_predict(log_model, X, threshold):
     return (probs[:, 1] > threshold).astype(int)
 
 
-#confusion matrix after applying threshold
-# threshold = 0.2
-#y_pred = (model.predict_proba(X_test)[:, 1] > threshold).astype('float')
-#confusion_matrix(y_test, y_pred)
-
-
-          
 # plot the confusion matrix 
 def plot_cm(actual: np.ndarray, prediction: np.ndarray):
     """
@@ -1076,6 +1019,6 @@ def plot_cm(actual: np.ndarray, prediction: np.ndarray):
     df = pd.DataFrame(data, columns=['y_Actual', 'y_Predicted'])
     confusion_matrix = pd.crosstab(df['y_Actual'], df['y_Predicted'], rownames=['Actual'], colnames=['Predicted'])
     # use seaborn to plot a heatmap of the confusion matrix
-    sn.heatmap(confusion_matrix, annot=True)
+    sns.heatmap(confusion_matrix, annot=True)
     #plt.show()
     plt.savefig('confusion_matrix.png')

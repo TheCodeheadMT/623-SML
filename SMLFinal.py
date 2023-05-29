@@ -96,7 +96,9 @@ if NORMAL_CLS:
 
         util.corr_plots(df_new, title="Raw Training dataset Correlation")
 
-        util.data_explore(df_new[['tag', 'file_depth', 'msg_len']])
+        util.data_explore_msg_len_file_depth(df_new[['tag', 'file_depth', 'msg_len']])
+
+        util.box_plots(df_new)
 
         # pairwise plots
         #f = plt.figure()
@@ -105,10 +107,12 @@ if NORMAL_CLS:
         #df1['file_depth'] = np.log2(df1['file_depth'])
         #sns.regplot("x", "y", data, ax=ax, scatter_kws={"s": 100})
         #g = sns.PairGrid(df1, hue="tag")
-        fig = sns.pairplot(df_new, hue='tag')
-        fig.fig.suptitle("Pairs Plot", y=1.08) # y= some height>1
-        fig.add_legend()
-        plt.show()
+
+        #long running, so commented out, dont delete
+        # fig = sns.pairplot(df_new, hue='tag')
+        # fig.fig.suptitle("Pairs Plot", y=1.08) # y= some height>1
+        # fig.add_legend()
+        # plt.show()
         exit()
 
 
@@ -165,8 +169,12 @@ if NORMAL_CLS:
             # Create a stacked model and then report accuracy for all
             #stked_clf = util.get_stacked_model(X, y, class_weight, "training")
             #df1_train_models['Stacking_Ensemble'] = stked_clf
-            #mod_, params_ = util.rand_grid_search_rand_forest(X, y, class_weight)
-            #df1_train_models['Best_Random_Forest'] = mod_
+            mod_, params_ = util.rand_grid_search_rand_forest(X, y, class_weight)
+            df1_train_models['Best_Random_Forest'] = mod_
+
+            util.prune_decision_tree(X, y, X_test, y_test, class_weight)
+            exit()
+
             print("All models trained ...\n")
 
         # check for important features using Random Forest Classifier
@@ -190,7 +198,7 @@ if NORMAL_CLS:
             #df1_train_models['Best_Random_Forest'] = mod_
 
 
-        REPORT_RESULTS = True
+        REPORT_RESULTS = False
         if REPORT_RESULTS:
             df1_train_models = {"Logistic_Regression":df1_train_models['Logistic_Regression'],
                                 "Decision_Tree":df1_train_models['Decision_Tree']}
@@ -224,35 +232,40 @@ if NORMAL_CLS:
             #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
 
 
-        TEST_WITH_BEST_MODEL = False
+        TEST_WITH_BEST_MODEL = True
         if TEST_WITH_BEST_MODEL:
             print('Testing best model:')
 
             # Test the best model
-            best_model = df1_train_models['Logistic_Regression']
-            #best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
+            #best_model = df1_train_models['Logistic_Regression']
+            df1_train_models = {"Logistic_Regression": df1_train_models['Logistic_Regression'],
+                                "Decision_Tree": df1_train_models['Decision_Tree']}
+
+
+        #best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
             #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
             #best_model.fit(X, y)
             #best_model = df1_train_models['Logistic_Regression']
 
 
         # print prarms:
-            for parameter in best_model.get_params():
-                print(parameter, ': \t', best_model.get_params()[parameter])
+            for parameter in df1_train_models['Decision_Tree'].get_params():
+                print(parameter, ': \t', df1_train_models['Decision_Tree'].get_params()[parameter])
 
             #pred = best_model.predict(X_test)
             #score = accuracy_score(y_test, pred)
 
-            #
-
             # check performance on new data...
-            util.visualize_model(best_model, 'Logistic_Regression', X_test, y_test )
+            #util.visualize_model(best_model, 'Logistic_Regression', X_test, y_test )
+
+            for idx, (key, md) in enumerate(df1_train_models.items()):
+                util.visualize_model(md, key, X_test, y_test)
 
             util.show_confusion_matrix(df1_train_models, X_test, y_test)
 
-            util.show_ROC_plots({"Logistic_Regression": best_model}, X_test, y_test)
+            util.show_ROC_plots(df1_train_models, X_test, y_test)
 
-            util.precision_recall_threshold(best_model, X_test,y_test)
+            util.precision_recall_threshold(df1_train_models, X_test,y_test)
 
 
     # test against our test data
