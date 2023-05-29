@@ -32,7 +32,7 @@ from sklearn.model_selection import RandomizedSearchCV
 # from sklearn.keras.wrappers.scikit_learn.KerasClassifier,
 from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold, GridSearchCV
 from sklearn.metrics import balanced_accuracy_score
-import xgboost as xgb
+#import xgboost as xgb
 
 
 class Timer(object):
