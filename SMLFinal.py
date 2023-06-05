@@ -160,23 +160,27 @@ if NORMAL_CLS:
         feature_names = X.columns.values.tolist()
 
         # Build or load models
-        LOAD_MODELS = False
+        LOAD_MODELS = True
         if LOAD_MODELS:
                 df1_train_models = util.load_all_models("training")
+                #util.grid_search_decision_tree(X,y, class_weight)
+
         else:
             print("Training models...")
             df1_train_models = util.build_classifiers(X, y, class_weight, save_models=True, dataset_used="training")
+
+
             # Create a stacked model and then report accuracy for all
             #stked_clf = util.get_stacked_model(X, y, class_weight, "training")
             #df1_train_models['Stacking_Ensemble'] = stked_clf
-            mod_, params_ = util.rand_grid_search_rand_forest(X, y, class_weight)
-            df1_train_models['Best_Random_Forest'] = mod_
+            #mod_, params_ = util.rand_grid_search_rand_forest(X, y, class_weight)
+            #df1_train_models['Best_Random_Forest'] = mod_
 
-            util.prune_decision_tree(X, y, X_test, y_test, class_weight)
-            exit()
+            #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
+
 
             print("All models trained ...\n")
-
+            exit()
         # check for important features using Random Forest Classifier
         #print(util.get_important_features_from_rand_forest(df1_train_models['Random_Forest'], X))
         #print(util.get_important_features_from_rand_forest(df1_train_models['Best_Random_Forest'], X))
@@ -198,22 +202,46 @@ if NORMAL_CLS:
             #df1_train_models['Best_Random_Forest'] = mod_
 
 
-        REPORT_RESULTS = False
+        REPORT_RESULTS = True
         if REPORT_RESULTS:
-            df1_train_models = {"Logistic_Regression":df1_train_models['Logistic_Regression'],
-                                "Decision_Tree":df1_train_models['Decision_Tree']}
+            df1_train_models = {"Logistic_Regression": df1_train_models['Logistic_Regression'],
+                                "Decision_Tree": df1_train_models['Decision_Tree']}
+
+            util.plot_feature_importance(df1_train_models['Decision_Tree'], X, y)
+            exit()
+
+
+            #print(df1_train_models['KNN'])
+            # for parameter in df1_train_models['KNN'].get_params():
+            #     print(parameter, ': \t', df1_train_models['KNN'].get_params()[parameter])
+
 
             # Print accuracy results
-            print(util.report_model_accuracy(df1_train_models, X, y))
-
-            util.visualize_model(df1_train_models['Logistic_Regression'], 'Logistic Regression\n C=0.001, l2 penalty', X, y )
-            util.visualize_model(df1_train_models['Decision_Tree'], 'Decision Tree \n CCP Alpha=0.01', X, y)
+            print(util.report_model_accuracy(df1_train_models, X, y, thresholds=[0.30, 0.50]))
+            #util.visualize_model(df1_train_models['Logistic_Regression'], 'Logistic Regression\n C=0.001, l2 penalty', X, y )
+            #util.visualize_model(df1_train_models['Decision_Tree'], 'Decision Tree \n CCP Alpha=0.01', X, y)
 
             # Show confusion matrix for all models
             util.show_confusion_matrix(df1_train_models, X, y)
 
             # Show ROC curves
             util.show_ROC_plots(df1_train_models, X, y)
+
+            util.precision_recall_threshold(df1_train_models['Logistic_Regression'], X, y, "\n Logistic Regression")
+            util.precision_recall_threshold(df1_train_models['Decision_Tree'], X, y, "\n Decision Tree")
+
+            util.visualize_model(df1_train_models['Logistic_Regression'], "Logistic Regression (.53)", X, y, threshold=0.30)
+            util.visualize_model(df1_train_models['Decision_Tree'], "Decision Tree (.50)", X, y, threshold=0.50)
+
+
+
+
+            #predicts = pd.DataFrame(df1_train_models['Logistic_Regression'].predict_proba(X))
+            #predicts.to_csv("training_predictions_LR.csv")
+            #predicts = pd.DataFrame(df1_train_models['Decision_Tree'].predict_proba(X))
+            #predicts.to_csv("training_predictions_DT.csv")
+
+
 
             #Create decision tree visualization
             #util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names)
@@ -225,12 +253,12 @@ if NORMAL_CLS:
             #                                     feature_names,
             #                                     'Estimator_'+str(idx))
 
-            for idx, (key, md) in enumerate(df1_train_models.items()):
-                util.visualize_model(md, key, X, y)
+            # for idx, (key, md) in enumerate(df1_train_models.items()):
+            #     util.visualize_model(md, key, X, y)
 
 
             #util.prune_decision_tree(X, y, X_test, y_test, class_weight)
-
+            exit()
 
         TEST_WITH_BEST_MODEL = True
         if TEST_WITH_BEST_MODEL:
@@ -242,10 +270,20 @@ if NORMAL_CLS:
                                 "Decision_Tree": df1_train_models['Decision_Tree']}
 
 
+            #util.precision_recall_threshold(df1_train_models['Logistic_Regression'], X_test, y_test)
+            #util.precision_recall_threshold(df1_train_models['Decision_Tree'], X_test, y_test)
+
+            util.visualize_model(df1_train_models['Logistic_Regression'], "Logistic Regression (.53)", X_test, y_test, threshold=0.30)
+            util.visualize_model(df1_train_models['Decision_Tree'], "Decision Tree", X_test, y_test, threshold=0.5)
+
+            #util.create_decision_tree_graph(df1_train_models['Decision_Tree'], feature_names, "Decision Tree Graph (alpha-0.001 TH-0.60)")
+
         #best_model = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
             #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
             #best_model.fit(X, y)
             #best_model = df1_train_models['Logistic_Regression']
+            print(util.report_model_accuracy(df1_train_models, X_test, y_test, thresholds=[0.30, 0.50]))
+
 
 
         # print prarms:
@@ -258,129 +296,17 @@ if NORMAL_CLS:
             # check performance on new data...
             #util.visualize_model(best_model, 'Logistic_Regression', X_test, y_test )
 
-            for idx, (key, md) in enumerate(df1_train_models.items()):
-                util.visualize_model(md, key, X_test, y_test)
+            #for idx, (key, md) in enumerate(df1_train_models.items()):
+            #    util.visualize_model(md, key, X_test, y_test)
 
             util.show_confusion_matrix(df1_train_models, X_test, y_test)
 
             util.show_ROC_plots(df1_train_models, X_test, y_test)
 
-            util.precision_recall_threshold(df1_train_models, X_test,y_test)
+            #util.precision_recall_threshold(df1_train_models, X_test,y_test)
 
 
     # test against our test data
     # util.analyze_models(models)
 
-###########################################################################
-## ANN SECTION ############################################################
-ANN = False
-if ANN == True:
-    train_baseline = True
-    ######### STEP 1
-    # Data already split for test and validation, training is external 
-    # x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-    # read in dataset1.csv
-    df1 = pd.read_csv(
-        "MANUAL_LABELED_ENCODED_2023-02-09_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-training_timeline1.txt")
-
-    df2 = pd.read_csv(
-        "MANUAL_LABELED_ENCODED_2023-02-17_LVL5-FILTER_FILE-OLECF-WEBHIST-LNK-MSG_LEN-KEY_DIR-test_timeline1.txt")
-
-
-    # remove any columns that are not in both datasets
-    util.synch_datasets(df1, df2)
-
-    # Set weights for training
-    n_class_1 = df1_train_ann[df1_train['tag'] == 1].shape[0]
-    n_class_0 = df1_train_ann.shape[0] - n_class_1
-    n_samples = df1_train_ann.shape[0]
-
-    # Set class weights for training
-    class_weight = {
-        0: n_samples / (2 * n_class_0),
-        1: n_samples / (2 * n_class_1)
-    }
-
-    print("\n Step 1 complete. \n")
-    ######### STEP 2
-    print("\n Start step 2 - Performance metric selection. \n")
-    # other settings
-    last_layer_activation = 'sigmoid'
-    optimizer = Adam(learning_rate=0.0001)
-    loss_fn = 'binary_crossentropy'
-    # loss_fn = 'catagorical_crossentropy'
-    METRICS = [
-        tf.keras.metrics.BinaryAccuracy(name='accuracy'),
-        tf.keras.metrics.Precision(name='precision'),
-        tf.keras.metrics.Recall(name='recall'),
-        tf.keras.metrics.AUC(name='prc', curve='PR'),  # precision-recall curve
-    ]
-    print("\n Step 2 complete. \n")
-
-    ######### STEP 3
-    # further split our test data into validation data as well    
-    # X_train, X_Val, y_train, y_Val = train_test_split(data_train_val_df, y, test_size=0.33, random_state=42)
-    # split again to make half 15% test and 15% validation
-    # print("\n Startin step 3 - Split the data. \n")
-    # x_test, x_val, y_test, y_val = train_test_split(x_test, y_test, test_size=0.5, random_state=42)
-    # print("\n Step 3 complete. \n")
-
-    ######### STEP 4
-    print("\n Startin step 4 - Data transforms. \n")
-
-    # exclude_lst = []
-    # nom_features_lst = ['sex', 'class_', 'deck', 'embark_town', 'alone']
-    # num_features_lst = ['age', 'n_siblings_spouses', 'parch', 'fare']
-
-    # X_train_rdy = transform_titanic_data(x_train, 
-    #                                     exclude_list = exclude_lst, 
-    #                                     nom_feat = nom_features_lst,
-    #                                     num_feat = num_features_lst).astype('float64')
-
-    # X_val_rdy = transform_titanic_data(x_val, 
-    #                                     exclude_list = exclude_lst, 
-    #                                     nom_feat = nom_features_lst,
-    #                                     num_feat = num_features_lst).astype('float64')
-
-    # X_test_rdy =transform_titanic_data(x_test, 
-    #                                     exclude_list = exclude_lst, 
-    #                                     nom_feat = nom_features_lst,
-    #                                     num_feat = num_features_lst).astype('float64')
-    # print("\n Step 4 complete. \n")
-
-    ######### STEP 5 BASELINE MODEL
-    print("\n Startin step 5 - Initial model \n")
-    # if os.path.isdir("step_5_initial_model_titanic"):
-    #     model4 = tf.keras.models.load_model('step_5_initial_model_titanic')
-
-    #     pred_train= model4.predict(X_train_rdy)
-    #     scores = model4.evaluate(X_train_rdy, y_train, verbose=0)
-    #     print('Accuracy on training data: {}% \n Error on training data: {}'.format(scores[1], 1 - scores[1]))   
-
-    #     pred_test= model4.predict(X_val_rdy)
-    #     scores2 = model4.evaluate(X_val_rdy, y_val, verbose=0)
-    #     print('Accuracy on validate data: {}% \n Error on validate data: {}'.format(scores2[1], 1 - scores2[1]))    
-    # Set Xs and Ys for our training set
-
-    training = True
-    if training:
-        X = df1_train_ann.drop(["datetime", "tag"], axis=1)
-        y = df1_train_ann.tag
-    else:
-        X = df1_validation_ann.drop(["datetime", "tag"], axis=1)
-        y = df1_validation_ann.tag
-
-    # Get feature names
-    feature_names = X.columns.values.tolist()
-
-    # Build or load models
-    load_models = True
-    if load_models:
-        if training:
-            df1_train_models = util.load_all_models("training")
-        else:
-            df1_train_models = util.load_all_models("test")
-    else:
-        df1_train_models_ann = util.build_ann_classifiers(X, y, class_weight, save_models=True, dataset_used="training")
 

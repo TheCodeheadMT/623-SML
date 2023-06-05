@@ -2,6 +2,7 @@ import datetime as datetime
 import itertools
 import os
 import pickle
+import re
 import time
 from io import StringIO
 from pathlib import Path
@@ -319,13 +320,26 @@ def encode_file_depth_feature(df):
     return df
 
 
+def get_path_without_path_chars(message):
+    #p = Path(display_name_str)
+    #return re.sub(r'[!\"#\$%&\'\(\)\*\+,-\./:;<=>\?@\[\\\]\^_`{\|}~]', " ", message)
+    return re.sub(r'[^\w\s]', ' ',message)
+
+def remove_path_chars(df):
+    with Timer("Preprocess message"):
+        df['msg'] = df['message'].apply(get_path_without_path_chars)
+    return df
+
+
 def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="training"):
     X = Xs
     y = ys
 
     with Timer("Build and Fit: Logistic Regression"):
-        log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2')
+        log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000, C=0.001, penalty='l2', random_state=42)
         #log_reg = LogisticRegression(solver='lbfgs', class_weight='balanced', max_iter=1000)
+        #L2 Ridge regression
+        #L1 Lasso
         log_reg.fit(X, y)
 
     # with Timer("Build and Fit: SVC "):
@@ -338,11 +352,12 @@ def build_classifiers(Xs, ys, class_weights, save_models=False, dataset_used="tr
 
     with Timer("Build and Fit: KNeighbors Classifier"):
         knn = KNeighborsClassifier()
+        #knn= KNeighborsClassifier(leaf_size=5, metric='minkowski', n_neighbors=10, p=2, weights='uniform')
         knn.fit(X, y)
 
     with Timer("Build and Fit: Decision Tree Classifier"):
-        #dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42, ccp_alpha=0.01)
-        dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
+        dtc = DecisionTreeClassifier(class_weight=class_weights, ccp_alpha=0.001, max_depth=7, max_features='sqrt', random_state=42)
+        #dtc = DecisionTreeClassifier(class_weight=class_weights, random_state=42)
         dtc.fit(X, y)
 
     with Timer("Build and Fit: Random Forest Classifier"):
@@ -492,20 +507,27 @@ def predict_probs(models, X):
     return predicts
 
 
-def report_model_accuracy(models, Xs, ys):
+def report_model_accuracy(models, Xs, ys, thresholds = None):
     out_accuracy_str = '[ Accuracy report of classification models ]\n'
 
     X = Xs
     y = ys
 
+
     for i, (key, classifier) in enumerate(models.items()):
+        if thresholds is not None:
+            threshold = thresholds[i]
+        else:
+            threshold = 0.50
         # Get predictions
-        y_pred = models[key].predict(X)
+        y_pred = (classifier.predict_proba(X)[:, 1] > threshold)*1
+        #y_pred = models[key].predict(X)
         # score = accuracy_score(y, pred)
         pred = cross_val_score(models[key], X, y, cv=5)
         mean_cv_accuracy = np.mean(pred)
         bal_acc = balanced_accuracy_score(y, y_pred)
-        out_accuracy_str += key + " : " + str(mean_cv_accuracy) + "\n" + "bal acc:" + str(bal_acc)
+        out_accuracy_str += key + " : " + str(mean_cv_accuracy) + "\n" + "bal acc:" + str(bal_acc) + "\n"
+
 
     print("Finished report_model_accuracy")
 
@@ -566,7 +588,6 @@ def show_confusion_matrix(models, xs, ys):
     f, axes = plt.subplots(1, 6, figsize=(20, 5), sharey=True, sharex=True)
 
     for i, (key, classifier) in enumerate(models.items()):
-
         y_pred = classifier.predict(X)
         cf_matrix = confusion_matrix(y, y_pred)
         disp = ConfusionMatrixDisplay(cf_matrix)
@@ -648,6 +669,22 @@ def get_important_features_from_rand_forest(clf, Xs):
     for score, name in zip(clf.feature_importances_, Xs.columns):
         print(round(score, 2), name)
 
+def grid_search_decision_tree(X, y, class_weight):
+
+    param_grid = {'max_features': ['auto', 'sqrt', 'log2'],
+                  'ccp_alpha': [0.1, .01, .001],
+                  'max_depth' : [5, 6, 7, 8, 9],
+                  'criterion' :['gini', 'entropy']
+                  }
+    tree_clas = DecisionTreeClassifier(random_state=1024, class_weight=class_weight)
+    grid_search = GridSearchCV(estimator=tree_clas, param_grid=param_grid, cv=5, verbose=True)
+    grid_search.fit(X, y)
+
+    final_model = grid_search.best_estimator_
+    print(final_model)
+    #tree_clas.fit(x_train, y_train)
+
+
 
 def rand_grid_search_rand_forest(X, y, class_weights):
     with Timer("Hyperparameter Tuning - Random grid search"):
@@ -706,7 +743,6 @@ def plot_confusion_matrix(cm, classes,
         print("Normalized confusion matrix")
     else:
         print('Confusion matrix, without normalization')
-
     print(cm)
 
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
@@ -732,7 +768,8 @@ def plot_confusion_matrix(cm, classes,
 def visualize_model(model,
                     title,
                     x_visualize: np.ndarray,
-                    y_visualize: np.ndarray):
+                    y_visualize: np.ndarray,
+                    threshold=0.5):
     """
     Visualize our predictions using classification report and confusion matrix
 
@@ -740,8 +777,10 @@ def visualize_model(model,
     :param x_visualize: the input features given used to generate prediction
     :param y_visualize: the true output to compare against the predictions
     """
-    y_pred = model.predict(x_visualize)
-    y_pred = np.array(y_pred > 0.5, dtype=int)
+    #y_pred = model.predict(x_visualize)
+    #y_pred = np.array(y_pred > threshold, dtype=int)
+    y_pred = (model.predict_proba(x_visualize)[:, 1] > threshold)*1
+
     #print("USING .6 THRESHOLD")
     #y_pred = np.array(y_pred > 0.6, dtype=int)
     y_true = y_visualize
@@ -756,6 +795,8 @@ def visualize_model(model,
 
     # Plot non-normalized confusion matrix
     plt.figure()
+    print(title +"\n")
+
     plot_confusion_matrix(confusion_matrix, classes=class_names,
                           title='Confusion matrix, without normalization\n' + title)
 
@@ -840,7 +881,8 @@ def prune_decision_tree(X_train, y_train, X_test, y_test, class_weights):
 
 def grid_serach_cv_knn(X, y):
     # take actions and fit a c2_fixed_model that will do well on the test set
-    k_range = list(range(1, 5))
+    k_range = list(range(1, 3,  1))
+    #k_range = 100
     leaf_range = list(range(5, 20, 5))
     knn = KNeighborsClassifier(algorithm='auto')
     params = {
@@ -855,9 +897,9 @@ def grid_serach_cv_knn(X, y):
     grid_search_KNN = GridSearchCV(
         estimator=knn,
         param_grid=params,
-        scoring='accuracy',
+        scoring='balanced_accuracy',
         n_jobs=-1,
-        cv=5)
+        cv=3)
 
     # Commented out so the search does not run
     knn_grid = grid_search_KNN.fit(X, y)
@@ -973,7 +1015,7 @@ def grid_serach_cv_logistic_regression(X, y):
     print("accuracy :", logreg_cv.best_score_)
 
 
-def precision_recall_threshold(model, X, y):
+def precision_recall_threshold(model, X, y, title=""):
 
     test_x = X
     test_y = y
@@ -985,7 +1027,7 @@ def precision_recall_threshold(model, X, y):
     #retrieve probability of being 1(in second column of probs_y)
     pr_auc = metrics.auc(recall, precision)
 
-    plt.title("Precision-Recall vs Threshold Chart")
+    plt.title("Precision-Recall vs Threshold Chart" + title)
     plt.plot(thresholds, precision[: -1], "b--", label="Precision")
     plt.plot(thresholds, recall[: -1], "r--", label="Recall")
     plt.ylabel("Precision, Recall")
@@ -1022,3 +1064,14 @@ def plot_cm(actual: np.ndarray, prediction: np.ndarray):
     sns.heatmap(confusion_matrix, annot=True)
     #plt.show()
     plt.savefig('confusion_matrix.png')
+
+
+def plot_feature_importance(dt_, X, y):
+    #df = pd.DataFrame(dt_.feature_importances_, columns=X.columns)
+    #df.sort_values(by='importance', ascending=False, inplace=True)
+    plt.figure(figsize=(15,7))
+    plt.barh(X.columns, dt_.feature_importances_)
+    #plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()
+
