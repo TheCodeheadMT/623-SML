@@ -187,8 +187,6 @@ def final():
     # load data
     df1_train, df2_test, X_train, y_train, X_valid, y_valid, X_test, y_test, class_weight = load_dataset()
     
-   
-
     TRAIN = False
     if TRAIN:
         # get model
@@ -328,6 +326,7 @@ def final():
         
         plt.figure()
         plot_confusion_matrix(model_CM, normalize=True, classes=class_names, title='Confusion matrix (norm) - Test')
+        plt.
         plt.savefig('pml_figures/Test_Confusion_matrix_norm')
 
 
