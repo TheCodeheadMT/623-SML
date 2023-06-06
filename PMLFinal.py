@@ -179,7 +179,7 @@ def load_dataset():
         1: n_samples / (2 * n_class_1)
     }
 
-    return df1_train, df2_test, X_train, y_train, X_valid, y_valid, X_test, y_test, class_weight 
+    return df1_train, df2_test, X_train, y_train, X_valid, y_valid, X_test, y_test, class_weight
 
 
 def final():
@@ -396,39 +396,6 @@ def precision_recall_threshold(model, X, y):
     plt.ylim([0,1])
     plt.savefig("pml_figures/precision_recall_curve.png")
 
-
-def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.Blues):
-    """
-    this function is from https://sklearn.org/auto_examples/model_selection/plot_confusion_matrix.html
-
-    This function prints and plots the confusion matrix.
-    Normalization can be applied by setting `normalize=True`.
-    """
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-        print("Normalized confusion matrix")
-    else:
-        print('Confusion matrix, without normalization')
-
-    print(cm)
-
-    plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    plt.title(title)
-    plt.colorbar()
-    tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes)
-    plt.yticks(tick_marks, classes)
-
-    fmt = '.2f' if normalize else 'd'
-    thresh = cm.max() / 2.
-    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        plt.text(j, i, format(cm[i, j], fmt),
-                horizontalalignment="center",
-                color="white" if cm[i, j] > thresh else "black")
-
-    plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
 
 if __name__ == "__main__":
     final()
