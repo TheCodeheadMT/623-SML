@@ -6,7 +6,7 @@ import re
 import time
 from io import StringIO
 from pathlib import Path
-
+import tensorflow as tf
 import pydotplus
 from IPython.display import Image
 
@@ -323,11 +323,21 @@ def encode_file_depth_feature(df):
 def get_path_without_path_chars(message):
     #p = Path(display_name_str)
     #return re.sub(r'[!\"#\$%&\'\(\)\*\+,-\./:;<=>\?@\[\\\]\^_`{\|}~]', " ", message)
-    return re.sub(r'[^\w\s]', ' ',message)
+    msg = ""
+    if isinstance(message, str):
+        msg = re.sub(r'[/!\"#\$%&\'\(\)\*\+,-\./:;<=>\?@\[\\\]\^_`{\|}~]', ' ', message)
+        msg = re.sub(r'\w*\d\w*', '', msg).strip()
+        #msg = re.sub(r'\w*\d\w*', '', message).strip()
+
+        #print(msg)
+
+    else:
+        msg = ""
+    return msg
 
 def remove_path_chars(df):
     with Timer("Preprocess message"):
-        df['msg'] = df['message'].apply(get_path_without_path_chars)
+        df['message'] = df['message'].apply(get_path_without_path_chars)
     return df
 
 
@@ -1075,3 +1085,52 @@ def plot_feature_importance(dt_, X, y):
     plt.tight_layout()
     plt.show()
 
+
+def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.Blues):
+    """
+    this function is from https://sklearn.org/auto_examples/model_selection/plot_confusion_matrix.html
+
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+def custom_predict_proba(text_list, model, tokenizer):
+    #tokenize the text
+    encodings = tokenizer(text_list,
+                          max_length=MAX_LEN,
+                          truncation=True,
+                          padding=True)
+    #transform to tf.Dataset
+    dataset = tf.data.Dataset.from_tensor_slices((dict(encodings)))
+    #predict
+    preds = model.predict(dataset.batch(1)).logits
+
+    #transform to array with probabilities
+    res = tf.nn.softmax(preds, axis=1).numpy()
+
+    return res
