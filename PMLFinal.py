@@ -129,6 +129,8 @@ def get_model(input_shape, overfit=False, reg=False):
     if reg:
         current_tensor = Dropout(.2)(current_tensor)
 
+    current_tensor = Dense(8, activation='relu')(current_tensor)
+
     current_tensor = Dense(num_classes, activation='sigmoid')(current_tensor)
     output_tensor = current_tensor
     model = Model(input_tensor, output_tensor)
@@ -187,10 +189,10 @@ def final():
     # load data
     df1_train, df2_test, X_train, y_train, X_valid, y_valid, X_test, y_test, class_weight = load_dataset()
     
-    TRAIN = False
+    TRAIN = True
     if TRAIN:
         # get model
-        model = get_model(input_shape=X_train.shape[1], overfit=True, reg=True)
+        model = get_model(input_shape=X_train.shape[1], overfit=False, reg=True)
         
         model.summary()
 
@@ -219,10 +221,10 @@ def final():
         
     else:
 
-        model = get_model(input_shape=X_train.shape[1], overfit=True, reg=True)
+        model = get_model(input_shape=X_train.shape[1], overfit=False, reg=True)
         model.load_weights('models/model_reg_D32tan_D16tan_D1sig.h5')
     
-    REPORT_RESULTS=False
+    REPORT_RESULTS=True
     if REPORT_RESULTS:
         
         class_names = ['system', 'user']
@@ -283,12 +285,15 @@ def final():
 
         model_CM = confusion_matrix(y_pred=y_pred_val, y_true=y_valid)                                                            
 
+        plt.figure()
         plot_confusion_matrix(model_CM, classes=class_names, 
-                            title='Confusion matrix, without normalization - val')
-        plt.savefig('pml_figures/Validation_Confusion_matrix_no_norm')
+                            title='Confusion matrix, without normalization - Training')
+        plt.savefig('pml_figures/Test_Confusion_matrix_no_norm', bbox_inches="tight")
+        
+        plt.figure()
+        plot_confusion_matrix(model_CM, normalize=True, classes=class_names, title='Confusion matrix (norm) - Training')
+        plt.savefig('pml_figures/Test_Confusion_matrix_norm', bbox_inches="tight")
 
-        plot_confusion_matrix(model_CM, classes=class_names, title='Confusion matrix (norm) - val')
-        plt.savefig('pml_figures/Validation_Confusion_matrix_norm')
 
 
     TEST_WITH_BEST_MODEL = True
@@ -322,12 +327,11 @@ def final():
         plt.figure()
         plot_confusion_matrix(model_CM, classes=class_names, 
                             title='Confusion matrix, without normalization - Test')
-        plt.savefig('pml_figures/Test_Confusion_matrix_no_norm')
+        plt.savefig('pml_figures/Test_Confusion_matrix_no_norm', bbox_inches="tight")
         
         plt.figure()
         plot_confusion_matrix(model_CM, normalize=True, classes=class_names, title='Confusion matrix (norm) - Test')
-        plt.
-        plt.savefig('pml_figures/Test_Confusion_matrix_norm')
+        plt.savefig('pml_figures/Test_Confusion_matrix_norm', bbox_inches="tight")
 
 
 def find_perf_precision(model, X_train, y_train, y_pred_train):

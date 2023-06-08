@@ -16,7 +16,7 @@ model = TFDistilBertForSequenceClassification.from_pretrained(model_path, id2lab
                                                               label2id={"NEG": 0, "POS": 1})
 
 # load data
-PREPROCESS = False
+PREPROCESS = True
 if PREPROCESS:
     CUR_SET = "training"
 
@@ -36,6 +36,8 @@ if PREPROCESS:
 
     df_trn_ = util.remove_path_chars(df_trn_)
     df_tst_ = util.remove_path_chars(df_tst_)
+
+
 
     df_trn_.to_csv("BERT_DATA_trn.csv")
     df_tst_.to_csv("BERT_DATA_tst.csv")

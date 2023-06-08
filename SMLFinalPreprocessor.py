@@ -6,8 +6,12 @@ import re
 import time
 from io import StringIO
 from pathlib import Path
+<<<<<<< HEAD
 import tensorflow as tf
 import pydotplus
+=======
+
+>>>>>>> f23ab3ae1d1c34b6e00edda24bcdff615b833082
 from IPython.display import Image
 
 import numpy as np
@@ -929,7 +933,7 @@ def create_decision_tree_graph(model, feature_names, title):
                     feature_names=feature_names,
                     class_names=['0', '1'])
 
-    graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
+    #graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
 
     graph.write_png(title+'_DecisionTree.png')
     Image(graph.create_png())
